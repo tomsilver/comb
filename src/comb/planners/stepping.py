@@ -1,25 +1,27 @@
-"""A planner that walks toward a goal state via solver-bounded substeps.
+"""A planner that searches sequences of modes via BFS, stepping within each.
 
-``SteppingPlanner.plan`` first solves the augmented mode
-(``mode.constraints + final_constraints``) via :func:`find_satisfying_state`
-to find a goal state where all constraints are satisfied, then marches the
-mode from its current state toward that goal in many small substeps. Each
-substep advances the joint parameters by some scaled fraction of the
-remaining delta and calls :func:`solve` to update body poses; the scale is
-halved as needed so no body's pose moves more than ``interval`` (twist-norm
-distance) between adjacent substeps.
+``SteppingPlanner.plan`` performs a breadth-first search over modes:
 
-The result is a ``Trajectory[ModeState[PoseT]]`` whose checkpoints are
-valid solver outputs and whose adjacent checkpoints are bounded in pose
-distance, so linear interpolation between them stays close to the constraint
-manifold.
+1. From the system's current mode and state, try planning directly to a
+   state satisfying ``final_constraints`` (via :func:`find_satisfying_state`
+   for the goal, then solver-bounded stepping toward it).
+2. If that fails, for each transition in ``system.transitions``, try planning
+   to a state where the transition's trigger holds. If reachable, apply the
+   transition and queue the new mode.
+3. Repeat until the goal is reached or ``max_modes`` is exceeded.
+
+Within a mode, stepping calls :func:`solve` in a loop with the same
+``interval`` bound on per-checkpoint body twist distance, so adjacent
+checkpoints stay close on the constraint manifold and linear interpolation
+between them stays near-valid.
 """
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Generic
 
 import numpy as np
 from spatialmath import SE2, SE3, Twist2, Twist3
@@ -27,34 +29,30 @@ from spatialmath import SE2, SE3, Twist2, Twist3
 from comb.bodies import BodyPoses, PoseT
 from comb.constraints import Constraint, ConstraintConfiguration
 from comb.mode import Mode, ModeState, interpolate_mode_state
-from comb.planners import Planner
-from comb.solver import find_satisfying_state, solve
+from comb.planners import Planner, PlanningError
+from comb.solver import UnsatisfiableConstraints, find_satisfying_state, solve
+from comb.system import System
 from comb.trajectories import Trajectory, concatenate, constant, linear_segment
+
+
+class _WithinModeFailure(PlanningError):
+    """Internal: a within-mode planning attempt failed."""
 
 
 @dataclass(frozen=True)
 class SteppingPlanner(Planner):
-    """Manifold-following planner: solver-in-a-loop, bounded by ``interval``.
+    """BFS-over-modes planner with solver-bounded stepping within each mode.
 
-    Hyperparameters
-    ---------------
-    interval
-        Maximum twist-norm distance any body may move between adjacent
-        checkpoints. Smaller values produce denser checkpoints, hugging the
-        constraint manifold more closely under linear interpolation.
-    convergence_tolerance
-        Per-parameter tolerance for "at goal" — the loop terminates when
-        every parameter is within this of the goal value.
-    max_substeps
-        Safety cap; the planner raises ``RuntimeError`` if exceeded.
-    min_step_scale
-        Smallest allowed step-scale fraction before the planner gives up on
-        satisfying ``interval`` and raises.
+    ``interval`` bounds the max twist-norm distance any body may move between
+    adjacent checkpoints; ``max_substeps`` and ``max_modes`` are budgets per
+    mode and across the BFS. ``convergence_tolerance`` and ``min_step_scale``
+    are inner-loop knobs that rarely need tuning.
     """
 
     interval: float
     convergence_tolerance: float = 1e-6
     max_substeps: int = 1000
+    max_modes: int = 100
     min_step_scale: float = 1e-6
 
     def __post_init__(self) -> None:
@@ -63,60 +61,135 @@ class SteppingPlanner(Planner):
 
     def plan(
         self,
-        mode: Mode[PoseT],
+        system: System[PoseT],
         final_constraints: Iterable[Constraint[PoseT]],
         horizon: float,
     ) -> Trajectory[ModeState[PoseT]]:
         if horizon <= 0:
             raise ValueError(f"horizon must be positive, got {horizon}")
+        finals = list(final_constraints)
 
-        goal_state = find_satisfying_state(mode, final_constraints)
+        initial_mode = _internal_copy(system.mode)
+        initial_state = initial_mode.snapshot()
+        queue: deque[_BfsNode[PoseT]] = deque(
+            [_BfsNode(initial_mode, initial_state, [initial_state])]
+        )
 
+        for _ in range(self.max_modes):
+            if not queue:
+                break
+            node = queue.popleft()
+
+            # 1. Can we reach the goal from this mode?
+            try:
+                tail = self._states_within_mode(node.mode, node.entry_state, finals)
+                return self._build_trajectory(node.states_so_far + tail[1:], horizon)
+            except _WithinModeFailure:
+                pass
+
+            # 2. Otherwise try each transition that's reachable from here.
+            for transition in system.transitions:
+                try:
+                    approach = self._states_within_mode(
+                        node.mode, node.entry_state, [transition.trigger]
+                    )
+                except _WithinModeFailure:
+                    continue
+                try:
+                    next_mode = transition.apply(node.mode, approach[-1])
+                except ValueError:
+                    continue
+                queue.append(
+                    _BfsNode(
+                        next_mode,
+                        next_mode.snapshot(),
+                        node.states_so_far + approach[1:],
+                    )
+                )
+
+        raise PlanningError("SteppingPlanner found no plan reaching final_constraints")
+
+    def _states_within_mode(
+        self,
+        mode: Mode[PoseT],
+        start_state: ModeState[PoseT],
+        final_constraints: Iterable[Constraint[PoseT]],
+    ) -> list[ModeState[PoseT]]:
+        """Solver checkpoints from ``start_state`` to a state satisfying constraints.
+
+        Raises :class:`_WithinModeFailure` if the goal is infeasible from
+        ``start_state``, ``max_substeps`` is exceeded, or stepping can't
+        satisfy ``interval`` even with ``min_step_scale``.
+        """
         work_mode = _internal_copy(mode)
-        state = work_mode.snapshot()
-        states: list[ModeState[PoseT]] = [state]
+        work_mode.set_state(start_state)
+        try:
+            goal = find_satisfying_state(work_mode, final_constraints)
+        except UnsatisfiableConstraints as e:
+            raise _WithinModeFailure(str(e)) from e
 
+        states: list[ModeState[PoseT]] = [work_mode.snapshot()]
         while not _at_target(
-            state.configuration, goal_state.configuration, self.convergence_tolerance
+            states[-1].configuration, goal.configuration, self.convergence_tolerance
         ):
             if len(states) - 1 >= self.max_substeps:
-                raise RuntimeError(
-                    f"Stepping planner exceeded max_substeps={self.max_substeps} "
-                    f"before reaching goal; tighten interval or relax tolerance"
+                raise _WithinModeFailure(
+                    f"max_substeps={self.max_substeps} exceeded within mode"
                 )
-            delta = _delta_toward(state.configuration, goal_state.configuration)
-            scale = 1.0
-            while True:
-                scaled = {c: scale * d for c, d in delta.items()}
-                new_state = solve(work_mode, delta=scaled)
-                distance = _max_pose_distance(state.body_poses, new_state.body_poses)
-                if distance <= self.interval:
-                    break
-                if scale < self.min_step_scale:
-                    raise RuntimeError(
-                        f"Cannot reduce step scale below {self.min_step_scale} "
-                        f"while keeping max pose distance ({distance:g}) ≤ "
-                        f"interval ({self.interval:g})"
-                    )
-                scale /= 2
-            work_mode.set_state(new_state)
-            states.append(new_state)
-            state = new_state
+            next_state = self._take_step(work_mode, states[-1], goal)
+            work_mode.set_state(next_state)
+            states.append(next_state)
+        return states
 
+    def _take_step(
+        self,
+        work_mode: Mode[PoseT],
+        current: ModeState[PoseT],
+        goal: ModeState[PoseT],
+    ) -> ModeState[PoseT]:
+        """One scaled step toward ``goal``, halving until it satisfies ``interval``."""
+        delta = _delta_toward(current.configuration, goal.configuration)
+        scale = 1.0
+        while True:
+            new_state = solve(work_mode, delta={c: scale * d for c, d in delta.items()})
+            distance = _max_pose_distance(current.body_poses, new_state.body_poses)
+            if distance <= self.interval:
+                return new_state
+            if scale < self.min_step_scale:
+                raise _WithinModeFailure(
+                    f"Cannot reduce step scale below {self.min_step_scale} "
+                    f"while keeping max pose distance ({distance:g}) ≤ "
+                    f"interval ({self.interval:g})"
+                )
+            scale /= 2
+
+    def _build_trajectory(
+        self, states: list[ModeState[PoseT]], horizon: float
+    ) -> Trajectory[ModeState[PoseT]]:
         n_segments = len(states) - 1
         if n_segments == 0:
             return constant(states[0], horizon)
         sub_dt = horizon / n_segments
-        segments = [
-            linear_segment(
-                states[i],
-                states[i + 1],
-                duration=sub_dt,
-                interpolate=interpolate_mode_state,
-            )
-            for i in range(n_segments)
-        ]
-        return concatenate(segments)
+        return concatenate(
+            [
+                linear_segment(
+                    states[i],
+                    states[i + 1],
+                    duration=sub_dt,
+                    interpolate=interpolate_mode_state,
+                )
+                for i in range(n_segments)
+            ]
+        )
+
+
+@dataclass(frozen=True)
+class _BfsNode(Generic[PoseT]):
+    """One entry in the BFS queue: a mode, its entry state, and the path so far."""
+
+    mode: Mode[PoseT]
+    entry_state: ModeState[PoseT]
+    states_so_far: list[ModeState[PoseT]]
 
 
 def _internal_copy(mode: Mode[PoseT]) -> Mode[PoseT]:
@@ -134,43 +207,43 @@ def _internal_copy(mode: Mode[PoseT]) -> Mode[PoseT]:
 def _delta_toward(
     current: ConstraintConfiguration, target: ConstraintConfiguration
 ) -> dict[Constraint, np.ndarray]:
-    delta: dict[Constraint, np.ndarray] = {}
-    for constraint in target:
-        if constraint not in current:
-            continue
-        cur_vals = current[constraint].values
-        tgt_vals = target[constraint].values
-        spaces = constraint.parameter_spaces
-        delta[constraint] = np.array(
+    """Per-constraint geodesic tangent that retracts ``current`` toward ``target``."""
+    return {
+        c: np.array(
             [
-                spaces[i].difference(float(tgt_vals[i]), float(cur_vals[i]))
-                for i in range(len(spaces))
+                space.difference(
+                    float(target[c].values[i]), float(current[c].values[i])
+                )
+                for i, space in enumerate(c.parameter_spaces)
             ]
         )
-    return delta
+        for c in target
+        if c in current
+    }
 
 
 def _at_target(
-    current: ConstraintConfiguration, target: ConstraintConfiguration, tolerance: float
+    current: ConstraintConfiguration,
+    target: ConstraintConfiguration,
+    tolerance: float,
 ) -> bool:
-    for constraint in target:
-        if constraint not in current:
-            continue
-        cur_vals = current[constraint].values
-        tgt_vals = target[constraint].values
-        spaces = constraint.parameter_spaces
-        for i, space in enumerate(spaces):
-            d = space.difference(float(tgt_vals[i]), float(cur_vals[i]))
-            if abs(d) > tolerance:
-                return False
-    return True
+    """Whether all target parameters are within tolerance of current (geodesic)."""
+    return all(
+        abs(space.difference(float(target[c].values[i]), float(current[c].values[i])))
+        <= tolerance
+        for c in target
+        if c in current
+        for i, space in enumerate(c.parameter_spaces)
+    )
 
 
 def _max_pose_distance(a: BodyPoses[PoseT], b: BodyPoses[PoseT]) -> float:
+    """Largest twist-norm distance between corresponding poses in ``a`` and ``b``."""
     return max((_pose_distance(a[body], b[body]) for body in a), default=0.0)
 
 
 def _pose_distance(a: Any, b: Any) -> float:
+    """Twist-norm distance between two poses (SE2/SE3) or L2 (ndarray)."""
     if isinstance(a, SE2):
         return float(np.linalg.norm(Twist2(a.inv() * b).A))
     if isinstance(a, SE3):

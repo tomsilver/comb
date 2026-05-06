@@ -34,6 +34,14 @@ from comb.mode import Mode, ModeState
 _FD_EPSILON = 1e-7
 
 
+class UnsatisfiableConstraints(Exception):
+    """Raised when ``find_satisfying_state`` can't drive the residual to zero.
+
+    Indicates the augmented constraint set is infeasible from the given
+    initial state (e.g. an end-effector goal outside the arm's reach).
+    """
+
+
 def solve(
     mode: Mode[PoseT],
     delta: Mapping[Constraint[PoseT], np.ndarray] | None = None,
@@ -173,9 +181,10 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
     kinematic singularities where pure Gauss-Newton's Jacobian is
     rank-deficient and would stall.
 
-    Raises ``RuntimeError`` if the residual can't be driven below
-    ``residual_tolerance`` within ``max_iterations`` — typically meaning the
-    augmented constraint set is unsatisfiable from the given initial state.
+    Raises :class:`UnsatisfiableConstraints` if the residual can't be driven
+    below ``residual_tolerance`` within ``max_iterations`` — typically
+    meaning the augmented constraint set is infeasible from the given
+    initial state.
     """
     extras = list(extra_constraints)
     all_constraints = list(mode.constraints) + extras
@@ -300,10 +309,10 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
                 damping = min(damping * 10.0, 1e6)
 
     if final_residual_norm > residual_tolerance:
-        raise RuntimeError(
+        raise UnsatisfiableConstraints(
             f"find_satisfying_state failed to converge: residual norm "
             f"{final_residual_norm:g} > tolerance {residual_tolerance:g}; the "
-            f"augmented constraint set may be unsatisfiable from the initial state"
+            f"augmented constraint set may be infeasible from the initial state"
         )
 
     config = ConstraintConfiguration()
