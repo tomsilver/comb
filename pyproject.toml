@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 develop = [
-    "black",
+    "black[jupyter]",
     "docformatter",
     "isort",
     "jupyter",
