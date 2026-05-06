@@ -91,6 +91,34 @@ def test_render_rejects_unknown_geometry():
     pyplot.close(fig)
 
 
+def test_render_limits_are_stable_across_calls():
+    """Limits don't shift between renders, so the view doesn't jitter on slider
+    changes."""
+    ex = SingleRevolute2D()
+    fig, ax = pyplot.subplots()
+    renderer = MatplotlibRenderer2D(ax=ax)
+    renderer.render(ex.system)
+    xlim_first = ax.get_xlim()
+    ylim_first = ax.get_ylim()
+    # Mutate the link's pose to simulate a slider change.
+    ex.system.body_poses[ex.link] = SE2(0.0, 0.0, np.pi / 2)
+    renderer.render(ex.system)
+    assert ax.get_xlim() == xlim_first
+    assert ax.get_ylim() == ylim_first
+    pyplot.close(fig)
+
+
+def test_render_respects_explicit_limits():
+    """Xlim/ylim passed to the constructor override the heuristic and stay fixed."""
+    ex = SingleRevolute2D()
+    fig, ax = pyplot.subplots()
+    renderer = MatplotlibRenderer2D(ax=ax, xlim=(-5.0, 5.0), ylim=(-3.0, 3.0))
+    renderer.render(ex.system)
+    np.testing.assert_allclose(ax.get_xlim(), (-5.0, 5.0))
+    np.testing.assert_allclose(ax.get_ylim(), (-3.0, 3.0))
+    pyplot.close(fig)
+
+
 def test_rectangle_is_translated_and_rotated():
     """A rectangle drawn at a non-identity pose ends up at the expected position."""
     body = Body(
