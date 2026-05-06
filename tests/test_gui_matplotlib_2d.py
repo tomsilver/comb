@@ -13,14 +13,23 @@ from spatialmath import SE2  # noqa: E402
 from comb.bodies import Body, Rectangle  # noqa: E402
 from comb.examples.single_revolute_2d import SingleRevolute2D  # noqa: E402
 from comb.gui.matplotlib_2d import MatplotlibGUI2D  # noqa: E402
+from comb.gui.widgets import CircularDial  # noqa: E402
 from comb.system import System  # noqa: E402
 
 
-def test_gui_builds_one_slider_per_mutable_parameter():
-    """The GUI creates exactly one slider for each mutable parameter."""
+def test_gui_builds_one_widget_per_mutable_parameter():
+    """The GUI creates exactly one widget for each mutable parameter."""
     ex = SingleRevolute2D()
     gui = MatplotlibGUI2D(ex.system)
-    assert len(gui.sliders) == 1  # SingleRevolute2D has one mutable param (angle)
+    assert len(gui.widgets) == 1  # SingleRevolute2D has one mutable param (angle)
+    pyplot.close(gui.figure)
+
+
+def test_gui_uses_circular_dial_for_circle_parameter():
+    """A constraint whose parameter lives on Circle gets a CircularDial."""
+    ex = SingleRevolute2D()
+    gui = MatplotlibGUI2D(ex.system)
+    assert isinstance(gui.widgets[0], CircularDial)
     pyplot.close(gui.figure)
 
 
@@ -37,13 +46,13 @@ def test_gui_refuses_system_without_anchored_bodies():
         MatplotlibGUI2D(system)
 
 
-def test_gui_slider_drives_solver_and_updates_system():
-    """Setting a slider value runs solve and updates the system's body poses."""
+def test_gui_widget_drives_solver_and_updates_system():
+    """Setting a widget value runs solve and updates the system's body poses."""
     ex = SingleRevolute2D()
     gui = MatplotlibGUI2D(ex.system)
     initial_link_pose = ex.system.body_poses[ex.link]
 
-    gui.sliders[0].set_val(np.pi / 2)
+    gui.widgets[0].set_val(np.pi / 2)
 
     # Configuration was updated.
     assert ex.system.configuration[ex.joint]["angle"] == pytest.approx(
