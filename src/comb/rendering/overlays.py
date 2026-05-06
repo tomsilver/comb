@@ -46,6 +46,10 @@ class PointMarker2D(Overlay[SE2]):
     Useful for visualizing target positions, waypoints, or any single point
     of interest. Currently requires a renderer that exposes a matplotlib
     ``ax`` attribute (i.e. ``MatplotlibRenderer2D``).
+
+    When ``filled`` is False, only the marker's outline is drawn (in
+    ``color``); useful for marking a position without occluding whatever is
+    underneath.
     """
 
     x: float
@@ -54,6 +58,7 @@ class PointMarker2D(Overlay[SE2]):
     color: str = "tab:orange"
     size: float = 200.0
     edgecolor: str = "black"
+    filled: bool = True
 
     def draw(self, renderer: Renderer[SE2]) -> None:
         ax = getattr(renderer, "ax", None)
@@ -62,12 +67,24 @@ class PointMarker2D(Overlay[SE2]):
                 "PointMarker2D requires a renderer with an ``ax`` attribute; "
                 f"got {type(renderer).__name__}"
             )
-        ax.scatter(
-            [self.x],
-            [self.y],
-            marker=self.marker,
-            c=self.color,
-            s=self.size,
-            edgecolors=self.edgecolor,
-            zorder=10,
-        )
+        if self.filled:
+            ax.scatter(
+                [self.x],
+                [self.y],
+                marker=self.marker,
+                c=self.color,
+                s=self.size,
+                edgecolors=self.edgecolor,
+                zorder=10,
+            )
+        else:
+            ax.scatter(
+                [self.x],
+                [self.y],
+                marker=self.marker,
+                facecolors="none",
+                edgecolors=self.color,
+                s=self.size,
+                linewidths=2.0,
+                zorder=10,
+            )
