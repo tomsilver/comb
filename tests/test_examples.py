@@ -12,7 +12,6 @@ from comb.examples.single_revolute_3d import SingleRevolute3D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
 from comb.examples.two_link_arm_3d import TwoLinkArm3D
 from comb.examples.two_link_arm_with_object_2d import TwoLinkArmWithObject2D
-from comb.mode import ModeState
 from comb.solver import find_satisfying_state, solve
 
 

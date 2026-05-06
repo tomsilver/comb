@@ -83,8 +83,8 @@ class Mode(Generic[PoseT]):
     def snapshot(self) -> ModeState[PoseT]:
         """An independent ``ModeState`` capturing this mode's current state.
 
-        The returned ``ConstraintConfiguration`` and ``BodyPoses`` are fresh containers, so
-        later mutation of the mode doesn't leak into the snapshot.
+        The returned ``ConstraintConfiguration`` and ``BodyPoses`` are fresh
+        containers, so later mutation of the mode doesn't leak into the snapshot.
         """
         return ModeState(
             configuration=ConstraintConfiguration(

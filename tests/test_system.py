@@ -4,7 +4,6 @@ import numpy as np
 from spatialmath import SE2
 
 from comb.examples.two_link_arm_with_object_2d import TwoLinkArmWithObject2D
-from comb.mode import ModeState
 from comb.solver import find_satisfying_state
 from comb.system import System
 
