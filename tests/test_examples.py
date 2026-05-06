@@ -8,6 +8,7 @@ from comb.constraints import ConstraintParameters
 from comb.examples.fixed_pair_3d import FixedPair3D
 from comb.examples.single_revolute_2d import SingleRevolute2D
 from comb.examples.single_revolute_3d import SingleRevolute3D
+from comb.examples.two_link_arm_2d import TwoLinkArm2D
 from comb.examples.two_link_arm_3d import TwoLinkArm3D
 from comb.solver import solve
 
@@ -72,6 +73,26 @@ def test_single_revolute_2d_solves_delta():
     _, new_poses = solve(ex.system, delta={ex.joint: np.array([np.pi / 4])})
     expected_link = ex.base.pose * SE2(0.0, 0.0, np.pi / 4)
     np.testing.assert_allclose(new_poses[ex.link].A, expected_link.A, atol=1e-9)
+
+
+def test_two_link_arm_2d_starts_valid():
+    """The two-link 2D arm example builds in a valid state."""
+    ex = TwoLinkArm2D()
+    assert _residual_norm(ex.system) < 1e-12
+    assert ex.system.anchored_bodies == [ex.base]
+
+
+def test_two_link_arm_2d_solves_delta_propagates():
+    """A delta on joint_ab propagates through the unchanged joint_bc."""
+    ex = TwoLinkArm2D(link_length=1.0)
+    _, new_poses = solve(ex.system, delta={ex.joint_ab: np.array([np.pi / 2])})
+    # Each link's frame sits at its joint pivot, so after rotating joint_ab
+    # by 90 deg about z, link_a's frame is still at the base origin but
+    # rotated 90 deg, and link_b's frame sits at link_a's far end.
+    expected_a = ex.base.pose * SE2(0.0, 0.0, np.pi / 2)
+    expected_b = expected_a * SE2(1.0, 0.0, 0.0)
+    np.testing.assert_allclose(new_poses[ex.link_a].A, expected_a.A, atol=1e-7)
+    np.testing.assert_allclose(new_poses[ex.link_b].A, expected_b.A, atol=1e-7)
 
 
 def test_fixed_pair_3d_starts_valid():

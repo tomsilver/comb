@@ -40,10 +40,18 @@ class Box(Geometry[SE3]):
 
 @dataclass(frozen=True)
 class Rectangle(Geometry[SE2]):
-    """A 2D axis-aligned rectangle with the given extents along x and y."""
+    """A 2D axis-aligned rectangle with the given extents along x and y.
+
+    The rectangle's center sits at ``(offset_x, offset_y)`` in the body's
+    frame. Default ``(0, 0)`` means the rectangle is centered on the body's
+    frame; non-zero values let a link's frame sit at its joint pivot while
+    the rectangle visually extends away from it.
+    """
 
     size_x: float
     size_y: float
+    offset_x: float = 0.0
+    offset_y: float = 0.0
 
 
 # Body uses identity-based equality and hashing so that distinct instances can
