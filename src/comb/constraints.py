@@ -22,7 +22,7 @@ from typing import Generic
 import numpy as np
 from spatialmath import SE2, SE3, Twist2, Twist3, UnitQuaternion
 
-from comb.bodies import Body, PoseT
+from comb.bodies import Body, BodyPoses, PoseT
 
 
 @dataclass(frozen=True)
@@ -78,9 +78,14 @@ class Constraint(abc.ABC, Generic[PoseT]):
         """Names of the mutable configuration parameters this constraint expects."""
 
     @abc.abstractmethod
-    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+    def constraint_function(
+        self,
+        parameters: ConstraintParameters,
+        body_poses: BodyPoses[PoseT],
+    ) -> np.ndarray:
         """Residual vector that is zero when the constraint is satisfied.
 
+        ``body_poses`` provides the current poses for the bodies in the system.
         The shape and meaning of the residual is constraint-specific.
         """
 
@@ -97,10 +102,14 @@ class Joint2D(Constraint[SE2]):
         ``body2.pose == body1.pose * relative_transform(parameters)``.
         """
 
-    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+    def constraint_function(
+        self,
+        parameters: ConstraintParameters,
+        body_poses: BodyPoses[SE2],
+    ) -> np.ndarray:
         """SE(2) twist of the pose error (3-vector, zero when satisfied)."""
         expected = self.relative_transform(parameters)
-        actual = self.body1.pose.inv() * self.body2.pose
+        actual = body_poses[self.body1].inv() * body_poses[self.body2]
         error = expected.inv() * actual
         return np.asarray(Twist2(error).A, dtype=float)
 
@@ -117,10 +126,14 @@ class Joint3D(Constraint[SE3]):
         ``body2.pose == body1.pose * relative_transform(parameters)``.
         """
 
-    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+    def constraint_function(
+        self,
+        parameters: ConstraintParameters,
+        body_poses: BodyPoses[SE3],
+    ) -> np.ndarray:
         """SE(3) twist of the pose error (6-vector, zero when satisfied)."""
         expected = self.relative_transform(parameters)
-        actual = self.body1.pose.inv() * self.body2.pose
+        actual = body_poses[self.body1].inv() * body_poses[self.body2]
         error = expected.inv() * actual
         return np.asarray(Twist3(error).A, dtype=float)
 

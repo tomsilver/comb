@@ -103,6 +103,24 @@ def test_system_validate_after_mutation():
     system.validate()
 
 
+def test_system_rejects_anchor_not_in_bodies():
+    """anchored_bodies must reference bodies that are in the system."""
+    a, b, c = _make_body("a"), _make_body("b"), _make_body("c")
+    fixed = _make_fixed(a, b)
+    with pytest.raises(ValueError, match="not in the system"):
+        System[SE3](bodies=[a, b], constraints=[fixed], anchored_bodies=[c])
+
+
+def test_system_accepts_multiple_anchors():
+    """Multiple anchored bodies are allowed (e.g. both ends of a chain fixed)."""
+    a, b = _make_body("a"), _make_body("b")
+    fixed = _make_fixed(a, b)
+    system: System[SE3] = System(
+        bodies=[a, b], constraints=[fixed], anchored_bodies=[a, b]
+    )
+    assert system.anchored_bodies == [a, b]
+
+
 def test_system_holds_multiple_constraints():
     """A System can hold many constraints sharing bodies."""
     a, b, c = _make_body("a"), _make_body("b"), _make_body("c")

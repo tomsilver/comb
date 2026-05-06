@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from spatialmath import SE2, SE3
 
-from comb.bodies import Body, Box, Rectangle
+from comb.bodies import Body, BodyPoses, Box, Rectangle
 from comb.constraints import (
     Configuration,
     Constraint,
@@ -331,7 +331,8 @@ def test_constraint_function_zero_when_satisfied_2d():
         ),
     )
     residual = joint.constraint_function(
-        ConstraintParameters(values=np.array([angle]), names=("angle",))
+        ConstraintParameters(values=np.array([angle]), names=("angle",)),
+        BodyPoses({a: a.pose, b: b.pose}),
     )
     assert residual.shape == (3,)
     np.testing.assert_allclose(residual, np.zeros(3), atol=1e-12)
@@ -359,7 +360,8 @@ def test_constraint_function_zero_when_satisfied_3d():
         ),
     )
     residual = joint.constraint_function(
-        ConstraintParameters(values=np.array([angle]), names=("angle",))
+        ConstraintParameters(values=np.array([angle]), names=("angle",)),
+        BodyPoses({a: a.pose, b: b.pose}),
     )
     assert residual.shape == (6,)
     np.testing.assert_allclose(residual, np.zeros(6), atol=1e-12)
@@ -378,7 +380,8 @@ def test_constraint_function_nonzero_when_violated():
     )
     # Bodies both at identity, but the joint's angle is nonzero -> violated.
     residual = joint.constraint_function(
-        ConstraintParameters(values=np.array([0.5]), names=("angle",))
+        ConstraintParameters(values=np.array([0.5]), names=("angle",)),
+        BodyPoses({a: a.pose, b: b.pose}),
     )
     assert np.linalg.norm(residual) > 1e-6
 
@@ -402,5 +405,7 @@ def test_fixed_joint_constraint_function_zero_when_satisfied():
             names=FixedJoint3D.fixed_parameter_names(),
         ),
     )
-    residual = joint.constraint_function(_empty_params())
+    residual = joint.constraint_function(
+        _empty_params(), BodyPoses({a: a.pose, b: b.pose})
+    )
     np.testing.assert_allclose(residual, np.zeros(6), atol=1e-12)
