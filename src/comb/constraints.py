@@ -6,9 +6,12 @@ A ``Constraint`` describes the *structure* of a relationship between two bodies
 values of any mutable parameters live in a separate ``Configuration`` keyed by
 constraint instance.
 
-``Constraint`` is generic in the pose type of its bodies, so e.g.
-``RevoluteJoint3D`` is a ``Constraint[SE3]`` and only relates ``Body[SE3]``
-instances.
+``Constraint.constraint_function`` is fully generic: it returns an arbitrary
+residual vector that is zero when the constraint is satisfied. Joint-type
+constraints (relating two body poses by a relative transform) inherit from
+``Joint2D`` or ``Joint3D``, which derive ``constraint_function`` from a
+subclass-defined ``relative_transform``. Other custom constraints can implement
+``constraint_function`` directly.
 """
 
 import abc
@@ -17,7 +20,7 @@ from dataclasses import dataclass
 from typing import Generic
 
 import numpy as np
-from spatialmath import SE2, SE3
+from spatialmath import SE2, SE3, Twist2, Twist3, UnitQuaternion
 
 from comb.bodies import Body, PoseT
 
@@ -74,9 +77,56 @@ class Constraint(abc.ABC, Generic[PoseT]):
     def parameter_names(cls) -> tuple[str, ...]:
         """Names of the mutable configuration parameters this constraint expects."""
 
+    @abc.abstractmethod
+    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+        """Residual vector that is zero when the constraint is satisfied.
+
+        The shape and meaning of the residual is constraint-specific.
+        """
+
 
 @dataclass(frozen=True, eq=False)
-class FixedJoint2D(Constraint[SE2]):
+class Joint2D(Constraint[SE2]):
+    """A joint between two SE(2) bodies, defined by a relative SE(2) transform."""
+
+    @abc.abstractmethod
+    def relative_transform(self, parameters: ConstraintParameters) -> SE2:
+        """Transform from body1's frame to body2's frame implied by ``parameters``.
+
+        The constraint imposes
+        ``body2.pose == body1.pose * relative_transform(parameters)``.
+        """
+
+    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+        """SE(2) twist of the pose error (3-vector, zero when satisfied)."""
+        expected = self.relative_transform(parameters)
+        actual = self.body1.pose.inv() * self.body2.pose
+        error = expected.inv() * actual
+        return np.asarray(Twist2(error).A, dtype=float)
+
+
+@dataclass(frozen=True, eq=False)
+class Joint3D(Constraint[SE3]):
+    """A joint between two SE(3) bodies, defined by a relative SE(3) transform."""
+
+    @abc.abstractmethod
+    def relative_transform(self, parameters: ConstraintParameters) -> SE3:
+        """Transform from body1's frame to body2's frame implied by ``parameters``.
+
+        The constraint imposes
+        ``body2.pose == body1.pose * relative_transform(parameters)``.
+        """
+
+    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+        """SE(3) twist of the pose error (6-vector, zero when satisfied)."""
+        expected = self.relative_transform(parameters)
+        actual = self.body1.pose.inv() * self.body2.pose
+        error = expected.inv() * actual
+        return np.asarray(Twist3(error).A, dtype=float)
+
+
+@dataclass(frozen=True, eq=False)
+class FixedJoint2D(Joint2D):
     """A fixed SE(2) rigid-body transform from body1's frame to body2's frame."""
 
     @classmethod
@@ -87,9 +137,15 @@ class FixedJoint2D(Constraint[SE2]):
     def parameter_names(cls) -> tuple[str, ...]:
         return ()
 
+    def relative_transform(  # pylint: disable=unused-argument
+        self, parameters: ConstraintParameters
+    ) -> SE2:
+        fp = self.fixed_parameters
+        return SE2(fp["tx"], fp["ty"], fp["theta"])
+
 
 @dataclass(frozen=True, eq=False)
-class FixedJoint3D(Constraint[SE3]):
+class FixedJoint3D(Joint3D):
     """A fixed SE(3) rigid-body transform from body1's frame to body2's frame."""
 
     @classmethod
@@ -100,9 +156,17 @@ class FixedJoint3D(Constraint[SE3]):
     def parameter_names(cls) -> tuple[str, ...]:
         return ()
 
+    def relative_transform(  # pylint: disable=unused-argument
+        self, parameters: ConstraintParameters
+    ) -> SE3:
+        fp = self.fixed_parameters
+        # spatialmath UnitQuaternion is scalar-first; our names follow xyzw.
+        rotation = UnitQuaternion([fp["qw"], fp["qx"], fp["qy"], fp["qz"]])
+        return SE3.Rt(rotation.R, t=[fp["tx"], fp["ty"], fp["tz"]])
+
 
 @dataclass(frozen=True, eq=False)
-class RevoluteJoint2D(Constraint[SE2]):
+class RevoluteJoint2D(Joint2D):
     """A 2D revolute joint with origin fixed in body1's frame.
 
     The rotation axis is implicit (out of the plane). The mutable parameter is
@@ -117,9 +181,13 @@ class RevoluteJoint2D(Constraint[SE2]):
     def parameter_names(cls) -> tuple[str, ...]:
         return ("angle",)
 
+    def relative_transform(self, parameters: ConstraintParameters) -> SE2:
+        fp = self.fixed_parameters
+        return SE2(fp["origin_x"], fp["origin_y"], parameters["angle"])
+
 
 @dataclass(frozen=True, eq=False)
-class RevoluteJoint3D(Constraint[SE3]):
+class RevoluteJoint3D(Joint3D):
     """A revolute joint with axis and origin fixed in body1's frame.
 
     The mutable parameter is the joint angle in radians.
@@ -139,6 +207,12 @@ class RevoluteJoint3D(Constraint[SE3]):
     @classmethod
     def parameter_names(cls) -> tuple[str, ...]:
         return ("angle",)
+
+    def relative_transform(self, parameters: ConstraintParameters) -> SE3:
+        fp = self.fixed_parameters
+        origin = [fp["origin_x"], fp["origin_y"], fp["origin_z"]]
+        axis = [fp["axis_x"], fp["axis_y"], fp["axis_z"]]
+        return SE3.Trans(origin) * SE3.AngVec(parameters["angle"], axis)
 
 
 class Configuration:
