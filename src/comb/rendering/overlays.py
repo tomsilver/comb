@@ -1,6 +1,6 @@
 """Built-in renderer overlays.
 
-Overlays add extra content on top of a system's main rendering. Each overlay
+Overlays add extra content on top of a mode's main rendering. Each overlay
 is generic in the pose type so it pairs with a matching ``Renderer[PoseT]``.
 """
 
@@ -20,7 +20,7 @@ class GhostBodies(Overlay[PoseT], Generic[PoseT]):
     """Faded rendering of a set of bodies at given poses.
 
     Useful for visualizing goal states, prior states, or any "where this
-    could be" overlay alongside the live system.
+    could be" overlay alongside the live mode.
     """
 
     bodies: list[Body[PoseT]]
@@ -41,7 +41,7 @@ class GhostBodies(Overlay[PoseT], Generic[PoseT]):
 
 @dataclass(frozen=True)
 class PointMarker2D(Overlay[SE2]):
-    """A 2D world-point marker (star, circle, ...) drawn over the system.
+    """A 2D world-point marker (star, circle, ...) drawn over the mode.
 
     Useful for visualizing target positions, waypoints, or any single point
     of interest. Currently requires a renderer that exposes a matplotlib

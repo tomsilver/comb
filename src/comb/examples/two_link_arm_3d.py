@@ -9,6 +9,7 @@ from spatialmath import SE3
 
 from comb.bodies import Body, Box
 from comb.constraints import Configuration, ConstraintParameters, RevoluteJoint3D
+from comb.mode import Mode
 from comb.system import System
 
 
@@ -62,9 +63,10 @@ class TwoLinkArm3D:
                 ),
             }
         )
-        self.system: System[SE3] = System(
+        self.mode: Mode[SE3] = Mode(
             bodies=[self.base, self.link_a, self.link_b],
             constraints=[self.joint_ab, self.joint_bc],
             configuration=config,
             anchored_bodies=[self.base],
         )
+        self.system: System[SE3] = System(mode=self.mode)

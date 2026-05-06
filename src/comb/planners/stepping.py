@@ -1,15 +1,15 @@
 """A planner that walks toward a goal state via solver-bounded substeps.
 
-``SteppingPlanner.plan`` first solves the augmented system
-(``system.constraints + final_constraints``) via :func:`find_satisfying_state`
+``SteppingPlanner.plan`` first solves the augmented mode
+(``mode.constraints + final_constraints``) via :func:`find_satisfying_state`
 to find a goal state where all constraints are satisfied, then marches the
-system from its current state toward that goal in many small substeps. Each
+mode from its current state toward that goal in many small substeps. Each
 substep advances the joint parameters by some scaled fraction of the
 remaining delta and calls :func:`solve` to update body poses; the scale is
 halved as needed so no body's pose moves more than ``interval`` (twist-norm
 distance) between adjacent substeps.
 
-The result is a ``Trajectory[SystemState[PoseT]]`` whose checkpoints are
+The result is a ``Trajectory[ModeState[PoseT]]`` whose checkpoints are
 valid solver outputs and whose adjacent checkpoints are bounded in pose
 distance, so linear interpolation between them stays close to the constraint
 manifold.
@@ -26,9 +26,9 @@ from spatialmath import SE2, SE3, Twist2, Twist3
 
 from comb.bodies import BodyPoses, PoseT
 from comb.constraints import Configuration, Constraint
+from comb.mode import Mode, ModeState, interpolate_mode_state
 from comb.planners import Planner
 from comb.solver import find_satisfying_state, solve
-from comb.system import System, SystemState, interpolate_system_state
 from comb.trajectories import Trajectory, concatenate, constant, linear_segment
 
 
@@ -63,19 +63,19 @@ class SteppingPlanner(Planner):
 
     def plan(
         self,
-        system: System[PoseT],
+        mode: Mode[PoseT],
         final_constraints: Iterable[Constraint[PoseT]],
         horizon: float,
-    ) -> Trajectory[SystemState[PoseT]]:
+    ) -> Trajectory[ModeState[PoseT]]:
         if horizon <= 0:
             raise ValueError(f"horizon must be positive, got {horizon}")
 
-        goal_cfg, goal_poses = find_satisfying_state(system, final_constraints)
-        goal_state = SystemState(configuration=goal_cfg, body_poses=goal_poses)
+        goal_cfg, goal_poses = find_satisfying_state(mode, final_constraints)
+        goal_state = ModeState(configuration=goal_cfg, body_poses=goal_poses)
 
-        work_system = _internal_copy(system)
-        state = work_system.snapshot()
-        states: list[SystemState[PoseT]] = [state]
+        work_mode = _internal_copy(mode)
+        state = work_mode.snapshot()
+        states: list[ModeState[PoseT]] = [state]
 
         while not _at_target(
             state.configuration, goal_state.configuration, self.convergence_tolerance
@@ -89,8 +89,8 @@ class SteppingPlanner(Planner):
             scale = 1.0
             while True:
                 scaled = {c: scale * d for c, d in delta.items()}
-                new_cfg, new_poses = solve(work_system, delta=scaled)
-                new_state = SystemState(configuration=new_cfg, body_poses=new_poses)
+                new_cfg, new_poses = solve(work_mode, delta=scaled)
+                new_state = ModeState(configuration=new_cfg, body_poses=new_poses)
                 distance = _max_pose_distance(state.body_poses, new_state.body_poses)
                 if distance <= self.interval:
                     break
@@ -101,7 +101,7 @@ class SteppingPlanner(Planner):
                         f"interval ({self.interval:g})"
                     )
                 scale /= 2
-            work_system.apply(new_state)
+            work_mode.apply(new_state)
             states.append(new_state)
             state = new_state
 
@@ -114,22 +114,22 @@ class SteppingPlanner(Planner):
                 states[i],
                 states[i + 1],
                 duration=sub_dt,
-                interpolate=interpolate_system_state,
+                interpolate=interpolate_mode_state,
             )
             for i in range(n_segments)
         ]
         return concatenate(segments)
 
 
-def _internal_copy(system: System[PoseT]) -> System[PoseT]:
-    """A System whose mutable state is independent of ``system``'s."""
-    state = system.snapshot()
-    return System(
-        bodies=list(system.bodies),
-        constraints=list(system.constraints),
+def _internal_copy(mode: Mode[PoseT]) -> Mode[PoseT]:
+    """A Mode whose mutable state is independent of ``mode``'s."""
+    state = mode.snapshot()
+    return Mode(
+        bodies=list(mode.bodies),
+        constraints=list(mode.constraints),
         configuration=state.configuration,
         body_poses=state.body_poses,
-        anchored_bodies=list(system.anchored_bodies),
+        anchored_bodies=list(mode.anchored_bodies),
     )
 
 

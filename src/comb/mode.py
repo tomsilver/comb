@@ -1,12 +1,12 @@
-"""System: a container for bodies, constraints, configuration, and body poses.
+"""Mode: a container for bodies, constraints, configuration, and body poses.
 
-The ``System`` is the central object that downstream code (rendering, forward
+The ``Mode`` is the central object that downstream code (rendering, forward
 kinematics, collision detection, simulation, optimization) operates on.
 
-It is generic in the pose type, so a ``System[SE2]`` is statically distinct
-from a ``System[SE3]`` — useful e.g. for choosing a 2D vs 3D renderer.
+It is generic in the pose type, so a ``Mode[SE2]`` is statically distinct
+from a ``Mode[SE3]`` — useful e.g. for choosing a 2D vs 3D renderer.
 
-``body_poses`` holds the current pose for each body in the system. Bodies for
+``body_poses`` holds the current pose for each body in the mode. Bodies for
 which no entry is provided are auto-populated from each ``Body.pose``.
 
 ``anchored_bodies`` are bodies whose poses are fixed under solving (e.g. a
@@ -14,9 +14,9 @@ floor, a robot base bolted to the world). The solver only updates poses of
 non-anchored bodies; without at least one anchor, the SE(2)/SE(3) gauge is
 ambiguous and the solver will refuse to run.
 
-``SystemState`` is an immutable snapshot of the system's mutable state — the
+``ModeState`` is an immutable snapshot of the mode's mutable state — the
 ``(configuration, body_poses)`` pair that ``solve()`` returns. It is the
-natural value type for trajectories that drive a system through time.
+natural value type for trajectories that drive a mode through time.
 """
 
 from __future__ import annotations
@@ -29,12 +29,12 @@ from comb.constraints import Configuration, Constraint, interpolate_configuratio
 
 
 @dataclass
-class System(Generic[PoseT]):
-    """A kinematic system: bodies + constraints + configuration + body poses.
+class Mode(Generic[PoseT]):
+    """A kinematic mode: bodies + constraints + configuration + body poses.
 
     On construction we (i) auto-populate missing entries in ``body_poses`` from
     each ``Body.pose``, then (ii) check that every constraint's bodies are in
-    the system and every constraint with mutable parameters has an entry in
+    the mode and every constraint with mutable parameters has an entry in
     the configuration. If you mutate ``bodies`` or ``constraints`` after
     construction, call :meth:`validate` to re-check.
     """
@@ -52,7 +52,7 @@ class System(Generic[PoseT]):
         self.validate()
 
     def validate(self) -> None:
-        """Check that constraint bodies are in the system and the config is complete."""
+        """Check that constraint bodies are in the mode and the config is complete."""
         body_ids = {id(b) for b in self.bodies}
         for constraint in self.constraints:
             if (
@@ -62,7 +62,7 @@ class System(Generic[PoseT]):
                 raise ValueError(
                     f"{type(constraint).__name__} references bodies "
                     f"({constraint.body1.name}, {constraint.body2.name}) not in "
-                    f"the system"
+                    f"the mode"
                 )
             if constraint.parameter_names() and constraint not in self.configuration:
                 raise ValueError(
@@ -72,23 +72,23 @@ class System(Generic[PoseT]):
                 )
         for body in self.anchored_bodies:
             if id(body) not in body_ids:
-                raise ValueError(f"Anchored body {body.name!r} is not in the system")
+                raise ValueError(f"Anchored body {body.name!r} is not in the mode")
 
-    def snapshot(self) -> SystemState[PoseT]:
-        """An independent ``SystemState`` capturing this system's current state.
+    def snapshot(self) -> ModeState[PoseT]:
+        """An independent ``ModeState`` capturing this mode's current state.
 
         The returned ``Configuration`` and ``BodyPoses`` are fresh containers, so
-        later mutation of the system doesn't leak into the snapshot.
+        later mutation of the mode doesn't leak into the snapshot.
         """
-        return SystemState(
+        return ModeState(
             configuration=Configuration(
                 {c: self.configuration[c] for c in self.configuration}
             ),
             body_poses=BodyPoses({b: self.body_poses[b] for b in self.bodies}),
         )
 
-    def apply(self, state: SystemState[PoseT]) -> None:
-        """Push ``state``'s contents into this system's mutable state in place."""
+    def apply(self, state: ModeState[PoseT]) -> None:
+        """Push ``state``'s contents into this mode's mutable state in place."""
         for body in self.bodies:
             self.body_poses[body] = state.body_poses[body]
         for constraint in state.configuration:
@@ -96,22 +96,22 @@ class System(Generic[PoseT]):
 
 
 @dataclass(frozen=True)
-class SystemState(Generic[PoseT]):
-    """Immutable snapshot of a system's mutable state: configuration + body poses."""
+class ModeState(Generic[PoseT]):
+    """Immutable snapshot of a mode's mutable state: configuration + body poses."""
 
     configuration: Configuration
     body_poses: BodyPoses[PoseT]
 
 
-def interpolate_system_state(
-    start: SystemState[PoseT], end: SystemState[PoseT], s: float
-) -> SystemState[PoseT]:
-    """Interpolate two system states by interpolating each piece independently.
+def interpolate_mode_state(
+    start: ModeState[PoseT], end: ModeState[PoseT], s: float
+) -> ModeState[PoseT]:
+    """Interpolate two mode states by interpolating each piece independently.
 
     Use as the ``interpolate`` argument to ``trajectories.linear_segment`` to
-    build a ``Trajectory[SystemState[PoseT]]`` between two solver checkpoints.
+    build a ``Trajectory[ModeState[PoseT]]`` between two solver checkpoints.
     """
-    return SystemState(
+    return ModeState(
         configuration=interpolate_configuration(
             start.configuration, end.configuration, s
         ),

@@ -1,7 +1,7 @@
-"""Tests for SystemState and interpolators of Configuration / BodyPoses / SystemState.
+"""Tests for ModeState and interpolators of Configuration / BodyPoses / ModeState.
 
 These primitives are what a future trajectory-producing solver will compose into a
-``Trajectory[SystemState[PoseT]]``.
+``Trajectory[ModeState[PoseT]]``.
 """
 
 import math
@@ -18,8 +18,8 @@ from comb.constraints import (
     RevoluteJoint3D,
     interpolate_configuration,
 )
+from comb.mode import ModeState, interpolate_mode_state
 from comb.parameter_spaces import BoundedReal
-from comb.system import SystemState, interpolate_system_state
 from comb.trajectories import linear_segment
 
 
@@ -180,21 +180,21 @@ def test_interpolate_body_poses_ndarray():
     np.testing.assert_allclose(half[body], [1.0, 2.0, 3.0])
 
 
-def test_system_state_immutable_snapshot():
-    """SystemState bundles configuration and body_poses as a frozen pair."""
+def test_mode_state_immutable_snapshot():
+    """ModeState bundles configuration and body_poses as a frozen pair."""
     a, b = _body_3d("a"), _body_3d("b")
     joint = _revolute_3d(a, b)
     config = Configuration({joint: ConstraintParameters(np.array([0.5]), ("angle",))})
     poses = BodyPoses({a: SE3(), b: SE3.Trans(1.0, 0.0, 0.0)})
-    state: SystemState[SE3] = SystemState(configuration=config, body_poses=poses)
+    state: ModeState[SE3] = ModeState(configuration=config, body_poses=poses)
     assert state.configuration is config
     assert state.body_poses is poses
     with pytest.raises(Exception):
         state.configuration = Configuration()  # type: ignore[misc]
 
 
-def test_interpolate_system_state_combines_pieces():
-    """interpolate_system_state interpolates configuration and body_poses together."""
+def test_interpolate_mode_state_combines_pieces():
+    """interpolate_mode_state interpolates configuration and body_poses together."""
     a, b = _body_2d("a"), _body_2d("b")
     joint = _revolute_2d(a, b)
     cfg_start = Configuration(
@@ -203,16 +203,16 @@ def test_interpolate_system_state_combines_pieces():
     cfg_end = Configuration({joint: ConstraintParameters(np.array([1.0]), ("angle",))})
     poses_start = BodyPoses({a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 0.0, 0.0)})
     poses_end = BodyPoses({a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 0.0, 1.0)})
-    start = SystemState(configuration=cfg_start, body_poses=poses_start)
-    end = SystemState(configuration=cfg_end, body_poses=poses_end)
-    half = interpolate_system_state(start, end, 0.5)
+    start = ModeState(configuration=cfg_start, body_poses=poses_start)
+    end = ModeState(configuration=cfg_end, body_poses=poses_end)
+    half = interpolate_mode_state(start, end, 0.5)
     assert half.configuration[joint]["angle"] == pytest.approx(0.5)
     np.testing.assert_allclose(half.body_poses[a].t, [0.0, 0.0], atol=1e-12)
     assert half.body_poses[b].theta() == pytest.approx(0.5)
 
 
-def test_system_state_trajectory_via_linear_segment():
-    """End-to-end: a Trajectory[SystemState] queries cleanly at any time."""
+def test_mode_state_trajectory_via_linear_segment():
+    """End-to-end: a Trajectory[ModeState] queries cleanly at any time."""
     a, b = _body_2d("a"), _body_2d("b")
     joint = _revolute_2d(a, b)
     cfg_start = Configuration(
@@ -222,10 +222,10 @@ def test_system_state_trajectory_via_linear_segment():
     poses_start = BodyPoses({a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 0.0, 0.0)})
     poses_end = BodyPoses({a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 0.0, 1.0)})
     traj = linear_segment(
-        SystemState(configuration=cfg_start, body_poses=poses_start),
-        SystemState(configuration=cfg_end, body_poses=poses_end),
+        ModeState(configuration=cfg_start, body_poses=poses_start),
+        ModeState(configuration=cfg_end, body_poses=poses_end),
         duration=2.0,
-        interpolate=interpolate_system_state,
+        interpolate=interpolate_mode_state,
     )
     quarter = traj(0.5)
     assert quarter.configuration[joint]["angle"] == pytest.approx(0.25)

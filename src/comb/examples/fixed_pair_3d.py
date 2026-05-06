@@ -9,6 +9,7 @@ from spatialmath import SE3
 
 from comb.bodies import Body, Box
 from comb.constraints import ConstraintParameters, FixedJoint3D
+from comb.mode import Mode
 from comb.system import System
 
 
@@ -48,8 +49,9 @@ class FixedPair3D:
                 names=FixedJoint3D.fixed_parameter_names(),
             ),
         )
-        self.system: System[SE3] = System(
+        self.mode: Mode[SE3] = Mode(
             bodies=[self.base, self.child],
             constraints=[self.constraint],
             anchored_bodies=[self.base],
         )
+        self.system: System[SE3] = System(mode=self.mode)

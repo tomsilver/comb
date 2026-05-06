@@ -14,6 +14,7 @@ from spatialmath import SE2
 
 from comb.bodies import Body, Rectangle
 from comb.constraints import Configuration, ConstraintParameters, PlanarJoint2D
+from comb.mode import Mode
 from comb.system import System
 
 
@@ -46,9 +47,10 @@ class MobileBase2D:
                 )
             }
         )
-        self.system: System[SE2] = System(
+        self.mode: Mode[SE2] = Mode(
             bodies=[self.world, self.base],
             constraints=[self.joint],
             configuration=config,
             anchored_bodies=[self.world],
         )
+        self.system: System[SE2] = System(mode=self.mode)

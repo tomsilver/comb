@@ -1,4 +1,4 @@
-"""Tests for system module."""
+"""Tests for mode module."""
 
 import numpy as np
 import pytest
@@ -11,7 +11,7 @@ from comb.constraints import (
     FixedJoint3D,
     RevoluteJoint3D,
 )
-from comb.system import System
+from comb.mode import Mode
 
 
 def _make_body(name: str) -> Body[SE3]:
@@ -45,89 +45,85 @@ def _make_fixed(a: Body[SE3], b: Body[SE3]) -> FixedJoint3D:
     )
 
 
-def test_system_basic_construction():
-    """A System[SE3] holds bodies, constraints, and a configuration."""
+def test_mode_basic_construction():
+    """A Mode[SE3] holds bodies, constraints, and a configuration."""
     a, b = _make_body("a"), _make_body("b")
     joint = _make_revolute(a, b)
     config = Configuration.zeros([joint])
-    system: System[SE3] = System(
-        bodies=[a, b], constraints=[joint], configuration=config
-    )
-    assert system.bodies == [a, b]
-    assert system.constraints == [joint]
-    assert system.configuration[joint]["angle"] == 0.0
+    mode: Mode[SE3] = Mode(bodies=[a, b], constraints=[joint], configuration=config)
+    assert mode.bodies == [a, b]
+    assert mode.constraints == [joint]
+    assert mode.configuration[joint]["angle"] == 0.0
 
 
-def test_system_default_empty_configuration():
-    """System works without an explicit configuration when no constraint is mutable."""
+def test_mode_default_empty_configuration():
+    """Mode works without an explicit configuration when no constraint is mutable."""
     a, b = _make_body("a"), _make_body("b")
     fixed = _make_fixed(a, b)
-    system: System[SE3] = System(bodies=[a, b], constraints=[fixed])
-    assert len(system.configuration) == 0
+    mode: Mode[SE3] = Mode(bodies=[a, b], constraints=[fixed])
+    assert len(mode.configuration) == 0
 
 
-def test_system_rejects_constraint_with_unknown_body():
-    """A constraint whose bodies are not in the system is rejected."""
+def test_mode_rejects_constraint_with_unknown_body():
+    """A constraint whose bodies are not in the mode is rejected."""
     a, b, c = _make_body("a"), _make_body("b"), _make_body("c")
     joint = _make_revolute(a, b)
-    with pytest.raises(ValueError, match="not in the system"):
-        System[SE3](
+    with pytest.raises(ValueError, match="not in the mode"):
+        Mode[SE3](
             bodies=[a, c],
             constraints=[joint],
             configuration=Configuration.zeros([joint]),
         )
 
 
-def test_system_requires_configuration_for_mutable_constraint():
+def test_mode_requires_configuration_for_mutable_constraint():
     """A constraint with mutable parameters must have an entry in the configuration."""
     a, b = _make_body("a"), _make_body("b")
     joint = _make_revolute(a, b)
     with pytest.raises(ValueError, match="Configuration is missing"):
-        System[SE3](bodies=[a, b], constraints=[joint])
+        Mode[SE3](bodies=[a, b], constraints=[joint])
 
 
-def test_system_validate_after_mutation():
+def test_mode_validate_after_mutation():
     """Validate() re-checks invariants after the user mutates bodies or constraints."""
     a, b = _make_body("a"), _make_body("b")
     fixed = _make_fixed(a, b)
-    system: System[SE3] = System(bodies=[a, b], constraints=[fixed])
-    # Add a new constraint without updating the system; validate should catch it.
+    mode: Mode[SE3] = Mode(bodies=[a, b], constraints=[fixed])
+    # Add a new constraint without updating the mode; validate should catch it.
     new_revolute = _make_revolute(a, b)
-    system.constraints.append(new_revolute)
+    mode.constraints.append(new_revolute)
     with pytest.raises(ValueError, match="Configuration is missing"):
-        system.validate()
+        mode.validate()
     # Add the missing config entry; now validate passes.
-    system.configuration[new_revolute] = ConstraintParameters(
+    mode.configuration[new_revolute] = ConstraintParameters(
         values=np.array([0.0]), names=("angle",)
     )
-    system.validate()
+    mode.validate()
 
 
-def test_system_rejects_anchor_not_in_bodies():
-    """anchored_bodies must reference bodies that are in the system."""
+def test_mode_rejects_anchor_not_in_bodies():
+    """anchored_bodies must reference bodies that are in the mode."""
     a, b, c = _make_body("a"), _make_body("b"), _make_body("c")
     fixed = _make_fixed(a, b)
-    with pytest.raises(ValueError, match="not in the system"):
-        System[SE3](bodies=[a, b], constraints=[fixed], anchored_bodies=[c])
+    with pytest.raises(ValueError, match="not in the mode"):
+        Mode[SE3](bodies=[a, b], constraints=[fixed], anchored_bodies=[c])
 
 
-def test_system_accepts_multiple_anchors():
+def test_mode_accepts_multiple_anchors():
     """Multiple anchored bodies are allowed (e.g. both ends of a chain fixed)."""
     a, b = _make_body("a"), _make_body("b")
     fixed = _make_fixed(a, b)
-    system: System[SE3] = System(
-        bodies=[a, b], constraints=[fixed], anchored_bodies=[a, b]
-    )
-    assert system.anchored_bodies == [a, b]
+    mode: Mode[SE3] = Mode(bodies=[a, b], constraints=[fixed], anchored_bodies=[a, b])
+    assert mode.anchored_bodies == [a, b]
 
 
-def test_system_holds_multiple_constraints():
-    """A System can hold many constraints sharing bodies."""
+def test_mode_holds_multiple_constraints():
+    """A Mode can hold many constraints sharing bodies."""
     a, b, c = _make_body("a"), _make_body("b"), _make_body("c")
     joint_ab = _make_revolute(a, b)
     joint_bc = _make_revolute(b, c)
     config = Configuration.zeros([joint_ab, joint_bc])
-    system: System[SE3] = System(
+    mode: Mode[SE3] = Mode(
         bodies=[a, b, c], constraints=[joint_ab, joint_bc], configuration=config
     )
-    assert len(system.constraints) == 2
+    assert len(mode.constraints) == 2

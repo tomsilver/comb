@@ -1,10 +1,10 @@
 """Abstract Renderer base class plus an Overlay hook for additional content.
 
-A renderer draws (or refreshes) a ``System`` at its current body poses, plus
+A renderer draws (or refreshes) a ``Mode`` at its current body poses, plus
 any number of ``Overlay`` instances that add extra content (ghost goal
 states, waypoint markers, paths, ...). It is generic in the pose type, so a
-renderer for ``System[SE2]`` is statically distinct from one for
-``System[SE3]``. Concrete subclasses dispatch on the geometry type via
+renderer for ``Mode[SE2]`` is statically distinct from one for
+``Mode[SE3]``. Concrete subclasses dispatch on the geometry type via
 ``functools.singledispatchmethod`` so that adding a new shape only requires
 registering a method per renderer that supports it.
 """
@@ -16,19 +16,19 @@ from collections.abc import Iterable
 from typing import Generic
 
 from comb.bodies import Body, PoseT
-from comb.system import System
+from comb.mode import Mode
 
 
 class Renderer(abc.ABC, Generic[PoseT]):
-    """Renders a ``System[PoseT]`` plus optional overlays to some output."""
+    """Renders a ``Mode[PoseT]`` plus optional overlays to some output."""
 
     @abc.abstractmethod
     def render(
         self,
-        system: System[PoseT],
+        mode: Mode[PoseT],
         overlays: Iterable[Overlay[PoseT]] = (),
     ) -> None:
-        """Draw or refresh the system at its current body poses, then overlays."""
+        """Draw or refresh the mode at its current body poses, then overlays."""
 
     @abc.abstractmethod
     def draw_body(
@@ -41,14 +41,14 @@ class Renderer(abc.ABC, Generic[PoseT]):
     ) -> None:
         """Draw a single body's visual geometry at ``pose``.
 
-        Provided as a primitive so overlays can render bodies at non-system
+        Provided as a primitive so overlays can render bodies at non-mode
         poses (e.g. a ghost goal state) without re-implementing per-backend
         geometry dispatch.
         """
 
 
 class Overlay(abc.ABC, Generic[PoseT]):
-    """Extra content drawn after the system bodies have been rendered.
+    """Extra content drawn after the mode bodies have been rendered.
 
     Subclasses access whatever drawing primitives they need via the renderer
     they're handed (``renderer.draw_body``, ``renderer.ax`` for matplotlib

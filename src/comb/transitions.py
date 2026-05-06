@@ -1,4 +1,4 @@
-"""Constraint-triggered transitions for conditionally modifying a system.
+"""Constraint-triggered transitions for conditionally modifying a mode.
 
 A ``ConstraintTransition`` is a piece of data that says: "when this *trigger*
 constraint approximately holds at the current state, we may swap in this
@@ -11,7 +11,7 @@ object to the gripper when the gripper tip is close to it, breaking that
 attachment later, contact establishment / breaking, etc.
 
 The transition is just data; how it's used (manual, planner-driven) is up to
-the caller. ``apply(system, state)`` returns a *new* ``System`` reflecting the
+the caller. ``apply(mode, state)`` returns a *new* ``Mode`` reflecting the
 transition; it never mutates the input.
 """
 
@@ -31,30 +31,30 @@ from comb.constraints import (
     ConstraintParameters,
     FixedJoint2D,
 )
-from comb.system import System, SystemState
+from comb.mode import Mode, ModeState
 
 
 @dataclass(frozen=True)
 class ConstraintTransition(Generic[PoseT]):
-    """A state-conditional change to a system's constraint set.
+    """A state-conditional change to a mode's constraint set.
 
     The transition is *enabled* when ``trigger.constraint_function``'s residual
-    norm at the given state is below ``tolerance``. ``apply(system, state)``
-    returns a fresh ``System`` whose constraints are
-    ``[c for c in system.constraints if c not in remove] + add(state)``.
+    norm at the given state is below ``tolerance``. ``apply(mode, state)``
+    returns a fresh ``Mode`` whose constraints are
+    ``[c for c in mode.constraints if c not in remove] + add(state)``.
 
     ``add`` is a callable so the post-transition constraints can capture
     information from the moment of transition — most importantly the current
     relative transform between the bodies being rigidly attached.
 
     The trigger is required to have no mutable parameters (only fixed ones),
-    since the trigger isn't part of the system and so has no entry in
+    since the trigger isn't part of the mode and so has no entry in
     ``state.configuration`` to draw values from.
     """
 
     trigger: Constraint[PoseT]
     tolerance: float
-    add: Callable[[SystemState[PoseT]], Iterable[Constraint[PoseT]]] = field(
+    add: Callable[[ModeState[PoseT]], Iterable[Constraint[PoseT]]] = field(
         default=lambda _state: ()
     )
     remove: tuple[Constraint[PoseT], ...] = ()
@@ -70,26 +70,26 @@ class ConstraintTransition(Generic[PoseT]):
                 f"ConstraintTransition tolerance must be positive; got {self.tolerance}"
             )
 
-    def trigger_residual(self, state: SystemState[PoseT]) -> float:
+    def trigger_residual(self, state: ModeState[PoseT]) -> float:
         """L2 norm of the trigger constraint's residual at ``state``."""
         residual = self.trigger.constraint_function(
             ConstraintParameters(np.array([]), ()), state.body_poses
         )
         return float(np.linalg.norm(residual))
 
-    def is_enabled(self, state: SystemState[PoseT]) -> bool:
+    def is_enabled(self, state: ModeState[PoseT]) -> bool:
         """Whether the trigger approximately holds at ``state``."""
         return self.trigger_residual(state) < self.tolerance
 
     def apply(
         self,
-        system: System[PoseT],
-        state: SystemState[PoseT],
-    ) -> System[PoseT]:
-        """Return a new ``System`` reflecting this transition.
+        mode: Mode[PoseT],
+        state: ModeState[PoseT],
+    ) -> Mode[PoseT]:
+        """Return a new ``Mode`` reflecting this transition.
 
         Raises ``ValueError`` if the transition is not enabled at ``state``,
-        or if any constraint in ``remove`` isn't present in ``system.constraints``.
+        or if any constraint in ``remove`` isn't present in ``mode.constraints``.
         """
         if not self.is_enabled(state):
             raise ValueError(
@@ -97,15 +97,15 @@ class ConstraintTransition(Generic[PoseT]):
                 f"{self.trigger_residual(state):g} ≥ tolerance {self.tolerance:g}"
             )
         remove_ids = {id(c) for c in self.remove}
-        system_ids = {id(c) for c in system.constraints}
+        mode_ids = {id(c) for c in mode.constraints}
         for c in self.remove:
-            if id(c) not in system_ids:
+            if id(c) not in mode_ids:
                 raise ValueError(
                     f"ConstraintTransition.remove references {type(c).__name__} "
-                    f"not in system.constraints"
+                    f"not in mode.constraints"
                 )
 
-        kept = [c for c in system.constraints if id(c) not in remove_ids]
+        kept = [c for c in mode.constraints if id(c) not in remove_ids]
         added = list(self.add(state))
         new_constraints = kept + added
 
@@ -120,20 +120,20 @@ class ConstraintTransition(Generic[PoseT]):
                     names=c.parameter_names(),
                 )
 
-        new_body_poses = BodyPoses({b: state.body_poses[b] for b in system.bodies})
+        new_body_poses = BodyPoses({b: state.body_poses[b] for b in mode.bodies})
 
-        return System(
-            bodies=list(system.bodies),
+        return Mode(
+            bodies=list(mode.bodies),
             constraints=new_constraints,
             configuration=new_config,
             body_poses=new_body_poses,
-            anchored_bodies=list(system.anchored_bodies),
+            anchored_bodies=list(mode.anchored_bodies),
         )
 
 
 def rigid_attachment_2d(
     body1: Body[SE2], body2: Body[SE2]
-) -> Callable[[SystemState[SE2]], list[Constraint[SE2]]]:
+) -> Callable[[ModeState[SE2]], list[Constraint[SE2]]]:
     """An ``add`` factory that rigidly attaches ``body2`` to ``body1``.
 
     Returns a callable suitable for ``ConstraintTransition.add``. At apply time
@@ -142,7 +142,7 @@ def rigid_attachment_2d(
     pose-relative-to-``body1`` from then on.
     """
 
-    def make(state: SystemState[SE2]) -> list[Constraint[SE2]]:
+    def make(state: ModeState[SE2]) -> list[Constraint[SE2]]:
         rel = state.body_poses[body1].inv() * state.body_poses[body2]
         return [
             FixedJoint2D(

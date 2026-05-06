@@ -1,14 +1,14 @@
-"""Solver: find a close valid state for a system.
+"""Solver: find a close valid state for a mode.
 
 Two functions:
 
 * :func:`solve` — apply a parameter delta and update body poses to satisfy
-  the system's constraints. Joint parameters are *fixed* at ``current+delta``;
+  the mode's constraints. Joint parameters are *fixed* at ``current+delta``;
   only body poses are optimized. Used by the GUI (slider tick) and by the
   stepping planner's inner loop.
 
 * :func:`find_satisfying_state` — joint parameters AND body poses are both
-  optimization variables. Finds a state that satisfies the system's
+  optimization variables. Finds a state that satisfies the mode's
   constraints plus any number of *extra* constraints. Useful for finding goal
   states from posed constraints (e.g. "end-effector at world pose X").
 
@@ -29,13 +29,13 @@ from spatialmath import SE2, SE3
 
 from comb.bodies import Body, BodyPoses, PoseT
 from comb.constraints import Configuration, Constraint, ConstraintParameters
-from comb.system import System
+from comb.mode import Mode
 
 _FD_EPSILON = 1e-7
 
 
 def solve(
-    system: System[PoseT],
+    mode: Mode[PoseT],
     delta: Mapping[Constraint[PoseT], np.ndarray] | None = None,
     max_iterations: int = 50,
     residual_tolerance: float = 1e-9,
@@ -52,27 +52,27 @@ def solve(
     """
     delta = dict(delta or {})
 
-    twist_dim, exp_map = _twist_dim_and_exp(system)
+    twist_dim, exp_map = _twist_dim_and_exp(mode)
 
-    bodies = list(system.bodies)
-    if not system.anchored_bodies:
+    bodies = list(mode.bodies)
+    if not mode.anchored_bodies:
         raise ValueError(
-            "solve() requires system.anchored_bodies to be non-empty: without "
+            "solve() requires mode.anchored_bodies to be non-empty: without "
             "an anchor, the SE(2)/SE(3) gauge is ambiguous and pose updates "
             "would be distributed across bodies rather than propagated through "
             "joints"
         )
-    anchored_ids = {id(b) for b in system.anchored_bodies}
+    anchored_ids = {id(b) for b in mode.anchored_bodies}
     movable_bodies = [b for b in bodies if id(b) not in anchored_ids]
     body_offsets = {b: i * twist_dim for i, b in enumerate(movable_bodies)}
     n_vars = len(movable_bodies) * twist_dim
 
     # Initialize current body poses and parameter values.
-    body_pose_curr: dict[Body[PoseT], Any] = {b: system.body_poses[b] for b in bodies}
+    body_pose_curr: dict[Body[PoseT], Any] = {b: mode.body_poses[b] for b in bodies}
     params_curr: dict[Constraint[PoseT], np.ndarray] = {}
-    for constraint in system.constraints:
+    for constraint in mode.constraints:
         if constraint.parameter_names():
-            current = system.configuration[constraint].values.astype(float).copy()
+            current = mode.configuration[constraint].values.astype(float).copy()
             if constraint in delta:
                 # Apply each delta component via the parameter's own retract,
                 # so circular angles wrap and bounded reals clamp.
@@ -89,7 +89,7 @@ def solve(
     def evaluate_residuals() -> np.ndarray:
         body_poses_obj = BodyPoses(body_pose_curr)
         residuals = []
-        for c in system.constraints:
+        for c in mode.constraints:
             if c.parameter_names():
                 params = ConstraintParameters(params_curr[c], c.parameter_names())
             else:
@@ -110,7 +110,7 @@ def solve(
         return lambda: body_pose_curr.__setitem__(body, saved)
 
     if n_vars == 0:
-        return _build_outputs(system, params_curr, body_pose_curr)
+        return _build_outputs(mode, params_curr, body_pose_curr)
 
     prev_residual_norm = float("inf")
     for _ in range(max_iterations):
@@ -147,11 +147,11 @@ def solve(
             twist = step[off : off + twist_dim]
             body_pose_curr[body] = body_pose_curr[body] * exp_map(twist)
 
-    return _build_outputs(system, params_curr, body_pose_curr)
+    return _build_outputs(mode, params_curr, body_pose_curr)
 
 
 def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statements
-    system: System[PoseT],
+    mode: Mode[PoseT],
     extra_constraints: Iterable[Constraint[PoseT]] = (),
     *,
     max_iterations: int = 200,
@@ -160,12 +160,12 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
     max_step_norm: float = 1.0,
     initial_damping: float = 1e-3,
 ) -> tuple[Configuration, BodyPoses[PoseT]]:
-    """Find a state satisfying ``system.constraints + extra_constraints``.
+    """Find a state satisfying ``mode.constraints + extra_constraints``.
 
     Joint parameters and body poses are *both* optimization variables. Initial
-    values come from ``system.configuration`` / ``system.body_poses``; any
+    values come from ``mode.configuration`` / ``mode.body_poses``; any
     parameterized constraint in ``extra_constraints`` not present in the
-    system's configuration starts at zero.
+    mode's configuration starts at zero.
 
     Uses Levenberg-Marquardt: each step solves
     ``(JᵀJ + λI) δ = -Jᵀr`` with adaptive ``λ`` (decreased when a step
@@ -178,16 +178,16 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
     augmented constraint set is unsatisfiable from the given initial state.
     """
     extras = list(extra_constraints)
-    all_constraints = list(system.constraints) + extras
-    twist_dim, exp_map = _twist_dim_and_exp(system)
-    if not system.anchored_bodies:
+    all_constraints = list(mode.constraints) + extras
+    twist_dim, exp_map = _twist_dim_and_exp(mode)
+    if not mode.anchored_bodies:
         raise ValueError(
-            "find_satisfying_state() requires system.anchored_bodies to be "
+            "find_satisfying_state() requires mode.anchored_bodies to be "
             "non-empty: without an anchor, the SE(2)/SE(3) gauge is ambiguous"
         )
 
-    bodies = list(system.bodies)
-    anchored_ids = {id(b) for b in system.anchored_bodies}
+    bodies = list(mode.bodies)
+    anchored_ids = {id(b) for b in mode.anchored_bodies}
     movable_bodies = [b for b in bodies if id(b) not in anchored_ids]
     body_offsets = {b: i * twist_dim for i, b in enumerate(movable_bodies)}
     n_pose_vars = len(movable_bodies) * twist_dim
@@ -201,11 +201,11 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
         cursor += n
     n_vars = cursor
 
-    body_pose_curr: dict[Body[PoseT], Any] = {b: system.body_poses[b] for b in bodies}
+    body_pose_curr: dict[Body[PoseT], Any] = {b: mode.body_poses[b] for b in bodies}
     params_curr: dict[Constraint[PoseT], np.ndarray] = {}
     for c in parameterized:
-        if c in system.configuration:
-            params_curr[c] = system.configuration[c].values.astype(float).copy()
+        if c in mode.configuration:
+            params_curr[c] = mode.configuration[c].values.astype(float).copy()
         else:
             params_curr[c] = np.zeros(len(c.parameter_names()))
 
@@ -307,7 +307,7 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
         )
 
     config = Configuration()
-    for c in system.constraints:
+    for c in mode.constraints:
         if c.parameter_names():
             config[c] = ConstraintParameters(
                 values=params_curr[c], names=c.parameter_names()
@@ -316,12 +316,12 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
 
 
 def _twist_dim_and_exp(
-    system: System[PoseT],
+    mode: Mode[PoseT],
 ) -> tuple[int, Callable[[np.ndarray], Any]]:
     """Pick twist dimension and exponential map by inspecting a body's current pose."""
-    if not system.bodies:
-        raise ValueError("Cannot solve a system with no bodies")
-    sample = system.body_poses[system.bodies[0]]
+    if not mode.bodies:
+        raise ValueError("Cannot solve a mode with no bodies")
+    sample = mode.body_poses[mode.bodies[0]]
     if isinstance(sample, SE2):
         return 3, SE2.Exp
     if isinstance(sample, SE3):
@@ -332,12 +332,12 @@ def _twist_dim_and_exp(
 
 
 def _build_outputs(
-    system: System[PoseT],
+    mode: Mode[PoseT],
     params: dict[Constraint[PoseT], np.ndarray],
     poses: dict[Body[PoseT], Any],
 ) -> tuple[Configuration, BodyPoses[PoseT]]:
     config = Configuration()
-    for constraint in system.constraints:
+    for constraint in mode.constraints:
         if constraint.parameter_names():
             config[constraint] = ConstraintParameters(
                 values=params[constraint], names=constraint.parameter_names()

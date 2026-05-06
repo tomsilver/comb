@@ -6,7 +6,7 @@ must carry ``Geometry[SE3]`` (e.g. ``Box``) and a ``Body[SE2]`` must carry
 inherit the same parameterization.
 
 ``BodyPoses[PoseT]`` is a mutable map from Body to its current pose, parallel
-to ``Configuration`` (which holds joint parameters). A ``System`` holds both,
+to ``Configuration`` (which holds joint parameters). A ``Mode`` holds both,
 and a solver updates them together.
 """
 
@@ -60,7 +60,7 @@ class Rectangle(Geometry[SE2]):
 class Body(Generic[PoseT]):
     """A named rigid body with a pose plus visual and collision geometry.
 
-    ``pose`` is the body's reference / initial pose. The system's *current*
+    ``pose`` is the body's reference / initial pose. The mode's *current*
     pose for this body lives in ``BodyPoses`` and may be updated by a solver.
     """
 
@@ -71,7 +71,7 @@ class Body(Generic[PoseT]):
 
 
 class BodyPoses(Generic[PoseT]):
-    """Current pose for each body in a system.
+    """Current pose for each body in a mode.
 
     Acts like a mutable mapping from ``Body[PoseT]`` to ``PoseT``. Parallel to
     ``Configuration`` (which holds joint parameter values).

@@ -1,4 +1,4 @@
-"""Matplotlib-backed 2D renderer for ``System[SE2]``.
+"""Matplotlib-backed 2D renderer for ``Mode[SE2]``.
 
 Adds support for new geometry types by registering more methods on
 ``MatplotlibRenderer2D._draw`` via ``singledispatchmethod``.
@@ -21,8 +21,8 @@ from spatialmath import SE2
 
 from comb.bodies import Body, Geometry, Rectangle
 from comb.constraints import Constraint
+from comb.mode import Mode
 from comb.rendering.base import Overlay, Renderer
-from comb.system import System
 
 _ANCHOR_COLOR = "tab:gray"
 _BODY_COLOR = "tab:blue"
@@ -34,7 +34,7 @@ _Y_OFFSET_NAMES = ("origin_y", "ty")
 
 
 class MatplotlibRenderer2D(Renderer[SE2]):
-    """Draw an ``System[SE2]`` into a matplotlib ``Axes``.
+    """Draw an ``Mode[SE2]`` into a matplotlib ``Axes``.
 
     Anchored bodies are drawn in a different color so the user can see what's
     pinned. Axes limits are computed on the first render and reused
@@ -55,19 +55,19 @@ class MatplotlibRenderer2D(Renderer[SE2]):
 
     def render(
         self,
-        system: System[SE2],
+        mode: Mode[SE2],
         overlays: Iterable[Overlay[SE2]] = (),
     ) -> None:
         self.ax.clear()
         self.ax.set_aspect("equal")
-        anchored = {id(b) for b in system.anchored_bodies}
-        for body in system.bodies:
+        anchored = {id(b) for b in mode.anchored_bodies}
+        for body in mode.bodies:
             color = _ANCHOR_COLOR if id(body) in anchored else _BODY_COLOR
-            self.draw_body(body, system.body_poses[body], color=color)
+            self.draw_body(body, mode.body_poses[body], color=color)
         for overlay in overlays:
             overlay.draw(self)
         if self._xlim is None or self._ylim is None:
-            xlim, ylim = self._estimate_bounds(system)
+            xlim, ylim = self._estimate_bounds(mode)
             if self._xlim is None:
                 self._xlim = xlim
             if self._ylim is None:
@@ -123,17 +123,15 @@ class MatplotlibRenderer2D(Renderer[SE2]):
         self.ax.add_patch(polygon)
 
     def _estimate_bounds(
-        self, system: System[SE2]
+        self, mode: Mode[SE2]
     ) -> tuple[tuple[float, float], tuple[float, float]]:
         """Square bounds centered on the anchors, sized to cover the workspace."""
-        radius = self._estimate_workspace_radius(system)
-        if system.anchored_bodies:
-            anchor_ts = [
-                np.asarray(system.body_poses[b].t) for b in system.anchored_bodies
-            ]
+        radius = self._estimate_workspace_radius(mode)
+        if mode.anchored_bodies:
+            anchor_ts = [np.asarray(mode.body_poses[b].t) for b in mode.anchored_bodies]
             center = np.mean(anchor_ts, axis=0)
-        elif system.bodies:
-            center = np.asarray(system.body_poses[system.bodies[0]].t)
+        elif mode.bodies:
+            center = np.asarray(mode.body_poses[mode.bodies[0]].t)
         else:
             center = np.array([0.0, 0.0])
         half = radius * 1.1  # 10% extra padding
@@ -142,13 +140,13 @@ class MatplotlibRenderer2D(Renderer[SE2]):
             (float(center[1] - half), float(center[1] + half)),
         )
 
-    def _estimate_workspace_radius(self, system: System[SE2]) -> float:
+    def _estimate_workspace_radius(self, mode: Mode[SE2]) -> float:
         max_geom = max(
-            (self._geometry_radius(b.visual_geometry) for b in system.bodies),
+            (self._geometry_radius(b.visual_geometry) for b in mode.bodies),
             default=0.5,
         )
-        origin_sum = sum(self._constraint_offset(c) for c in system.constraints)
-        # Floor at max_geom so a system of one body still gets a sensible window.
+        origin_sum = sum(self._constraint_offset(c) for c in mode.constraints)
+        # Floor at max_geom so a mode of one body still gets a sensible window.
         return max(origin_sum + max_geom, max_geom)
 
     @staticmethod

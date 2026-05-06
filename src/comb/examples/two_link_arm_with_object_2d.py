@@ -9,7 +9,7 @@ attachment, so subsequent planning carries the block along with the arm.
 
 Smallest workable example for "pick up an object" experiments — plan to
 bring the tip to the block, fire ``pickup_transition``, then plan with
-the resulting system (block now coupled to the arm) to a placement target.
+the resulting mode (block now coupled to the arm) to a placement target.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from spatialmath import SE2
 from comb.bodies import Body, BodyPoses, Rectangle
 from comb.constraints import ConstraintParameters, FixedJoint2D, PointEquality2D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
+from comb.mode import Mode
 from comb.system import System
 from comb.transitions import ConstraintTransition, rigid_attachment_2d
 
@@ -65,15 +66,15 @@ class TwoLinkArmWithObject2D:
                 names=FixedJoint2D.fixed_parameter_names(),
             ),
         )
-        self.system: System[SE2] = System(
-            bodies=self.arm.system.bodies + [self.world, self.block],
-            constraints=list(self.arm.system.constraints) + [self.world_to_block],
-            configuration=self.arm.system.configuration,
+        self.mode: Mode[SE2] = Mode(
+            bodies=self.arm.mode.bodies + [self.world, self.block],
+            constraints=list(self.arm.mode.constraints) + [self.world_to_block],
+            configuration=self.arm.mode.configuration,
             body_poses=BodyPoses(
-                {b: self.arm.system.body_poses[b] for b in self.arm.system.bodies}
+                {b: self.arm.mode.body_poses[b] for b in self.arm.mode.bodies}
                 | {self.world: SE2(), self.block: block_pose}
             ),
-            anchored_bodies=self.arm.system.anchored_bodies + [self.world],
+            anchored_bodies=self.arm.mode.anchored_bodies + [self.world],
         )
         # Trigger: arm tip (offset (link_length, 0) in link_b's frame) coincident
         # with the block's body frame (offset (0, 0) in the block's frame).
@@ -90,4 +91,8 @@ class TwoLinkArmWithObject2D:
             tolerance=pickup_tolerance,
             add=rigid_attachment_2d(self.arm.link_b, self.block),
             remove=(self.world_to_block,),
+        )
+        self.system: System[SE2] = System(
+            mode=self.mode,
+            transitions=(self.pickup_transition,),
         )

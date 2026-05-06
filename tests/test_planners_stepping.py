@@ -13,9 +13,9 @@ from comb.constraints import (
     FixedJoint2D,
 )
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
+from comb.mode import Mode, ModeState
 from comb.planners.stepping import SteppingPlanner
 from comb.solver import solve
-from comb.system import System, SystemState
 
 
 def _world_body() -> Body[SE2]:
@@ -38,18 +38,18 @@ def _pin(world: Body[SE2], body: Body[SE2], pose: SE2) -> FixedJoint2D:
     )
 
 
-def _arm_with_world(arm: TwoLinkArm2D) -> tuple[System[SE2], Body[SE2]]:
+def _arm_with_world(arm: TwoLinkArm2D) -> tuple[Mode[SE2], Body[SE2]]:
     """Augment the arm with an anchored world body so final_constraints can pin to
     it."""
     world = _world_body()
-    augmented = System(
-        bodies=arm.system.bodies + [world],
-        constraints=list(arm.system.constraints),
-        configuration=arm.system.configuration,
+    augmented = Mode(
+        bodies=arm.mode.bodies + [world],
+        constraints=list(arm.mode.constraints),
+        configuration=arm.mode.configuration,
         body_poses=BodyPoses(
-            {b: arm.system.body_poses[b] for b in arm.system.bodies} | {world: SE2()}
+            {b: arm.mode.body_poses[b] for b in arm.mode.bodies} | {world: SE2()}
         ),
-        anchored_bodies=arm.system.anchored_bodies + [world],
+        anchored_bodies=arm.mode.anchored_bodies + [world],
     )
     return augmented, world
 
@@ -61,7 +61,7 @@ def _reachable_link_b_pose(arm: TwoLinkArm2D, ab: float, bc: float) -> SE2:
     Constructing the goal from a known joint config guarantees reachability.
     """
     _, poses = solve(
-        arm.system,
+        arm.mode,
         delta={
             arm.joint_ab: np.array([ab]),
             arm.joint_bc: np.array([bc]),
@@ -74,7 +74,7 @@ def _se2_distance(a: SE2, b: SE2) -> float:
     return float(np.linalg.norm(Twist2(a.inv() * b).A))
 
 
-def _max_residual(system: System, state: SystemState) -> float:
+def _max_residual(mode: Mode, state: ModeState) -> float:
     """Largest constraint residual norm at ``state`` (zero at solver checkpoints)."""
 
     def _norm(constraint: Constraint) -> float:
@@ -86,46 +86,46 @@ def _max_residual(system: System, state: SystemState) -> float:
             np.linalg.norm(constraint.constraint_function(params, state.body_poses))
         )
 
-    return max((_norm(c) for c in system.constraints), default=0.0)
+    return max((_norm(c) for c in mode.constraints), default=0.0)
 
 
 def test_plan_reaches_goal_pose():
     """The trajectory ends at a state satisfying the final constraint."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
+    mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 4)
     final = [_pin(world, arm.link_b, goal)]
-    traj = SteppingPlanner(interval=0.2).plan(system, final, horizon=1.0)
+    traj = SteppingPlanner(interval=0.2).plan(mode, final, horizon=1.0)
     end = traj(traj.duration)
     assert _se2_distance(end.body_poses[arm.link_b], goal) < 1e-3
 
 
-def test_plan_does_not_mutate_system():
-    """The user's system is unchanged after planning."""
+def test_plan_does_not_mutate_mode():
+    """The user's mode is unchanged after planning."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
-    initial_ab = float(system.configuration[arm.joint_ab]["angle"])
-    initial_link_a = SE2(system.body_poses[arm.link_a])
+    mode, world = _arm_with_world(arm)
+    initial_ab = float(mode.configuration[arm.joint_ab]["angle"])
+    initial_link_a = SE2(mode.body_poses[arm.link_a])
     goal = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=math.pi / 4)
-    SteppingPlanner(interval=0.1).plan(system, [_pin(world, arm.link_b, goal)], 1.0)
-    assert float(system.configuration[arm.joint_ab]["angle"]) == initial_ab
-    np.testing.assert_allclose(system.body_poses[arm.link_a].A, initial_link_a.A)
+    SteppingPlanner(interval=0.1).plan(mode, [_pin(world, arm.link_b, goal)], 1.0)
+    assert float(mode.configuration[arm.joint_ab]["angle"]) == initial_ab
+    np.testing.assert_allclose(mode.body_poses[arm.link_a].A, initial_link_a.A)
 
 
 def test_plan_respects_interval_between_checkpoints():
     """Adjacent checkpoints' max body twist distance is bounded by interval."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
+    mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 3, bc=-math.pi / 4)
     interval = 0.15
     traj = SteppingPlanner(interval=interval).plan(
-        system, [_pin(world, arm.link_b, goal)], horizon=1.0
+        mode, [_pin(world, arm.link_b, goal)], horizon=1.0
     )
     samples = [traj(i / 200 * traj.duration) for i in range(201)]
     max_local = max(
         _se2_distance(prev.body_poses[body], nxt.body_poses[body])
         for prev, nxt in zip(samples, samples[1:])
-        for body in arm.system.bodies
+        for body in arm.mode.bodies
     )
     assert max_local <= interval + 1e-6
 
@@ -133,24 +133,24 @@ def test_plan_respects_interval_between_checkpoints():
 def test_plan_horizon_is_exact():
     """Reported duration equals the requested horizon."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
+    mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 6, bc=math.pi / 6)
     traj = SteppingPlanner(interval=0.2).plan(
-        system, [_pin(world, arm.link_b, goal)], horizon=3.7
+        mode, [_pin(world, arm.link_b, goal)], horizon=3.7
     )
     assert traj.duration == pytest.approx(3.7)
 
 
 def test_plan_already_at_goal_returns_constant():
-    """If the system already satisfies final constraints, the trajectory is constant."""
+    """If the mode already satisfies final constraints, the trajectory is constant."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
+    mode, world = _arm_with_world(arm)
     # Pin link_b at its current pose — already satisfied.
-    final = [_pin(world, arm.link_b, SE2(system.body_poses[arm.link_b]))]
-    traj = SteppingPlanner(interval=0.1).plan(system, final, horizon=1.0)
+    final = [_pin(world, arm.link_b, SE2(mode.body_poses[arm.link_b]))]
+    traj = SteppingPlanner(interval=0.1).plan(mode, final, horizon=1.0)
     assert traj.duration == pytest.approx(1.0)
     s0, s_mid, s_end = traj(0.0), traj(0.5), traj(1.0)
-    for body in arm.system.bodies:
+    for body in arm.mode.bodies:
         np.testing.assert_allclose(s0.body_poses[body].A, s_mid.body_poses[body].A)
         np.testing.assert_allclose(s0.body_poses[body].A, s_end.body_poses[body].A)
 
@@ -164,50 +164,50 @@ def test_plan_rejects_non_positive_interval():
 def test_plan_rejects_non_positive_horizon():
     """Horizon must be positive."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
+    mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 6, bc=0.0)
     with pytest.raises(ValueError, match="horizon must be positive"):
         SteppingPlanner(interval=0.1).plan(
-            system, [_pin(world, arm.link_b, goal)], horizon=0.0
+            mode, [_pin(world, arm.link_b, goal)], horizon=0.0
         )
 
 
 def test_plan_raises_when_max_substeps_exceeded():
     """A reachable goal with a tiny interval can't fit in a small substep budget."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
+    mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 3, bc=-math.pi / 4)
     planner = SteppingPlanner(interval=1e-3, max_substeps=5)
     with pytest.raises(RuntimeError, match="exceeded max_substeps"):
-        planner.plan(system, [_pin(world, arm.link_b, goal)], horizon=1.0)
+        planner.plan(mode, [_pin(world, arm.link_b, goal)], horizon=1.0)
 
 
 def test_plan_raises_when_goal_unreachable():
     """An unreachable goal causes find_satisfying_state to raise."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
+    mode, world = _arm_with_world(arm)
     # Two-link arm has reach <= 2.0; pose at (10, 0) is unreachable.
     final = [_pin(world, arm.link_b, SE2(10.0, 0.0, 0.0))]
     with pytest.raises(RuntimeError, match="failed to converge"):
-        SteppingPlanner(interval=0.1).plan(system, final, horizon=1.0)
+        SteppingPlanner(interval=0.1).plan(mode, final, horizon=1.0)
 
 
 def test_smaller_interval_yields_path_closer_to_manifold():
     """A finer ``interval`` keeps mid-segment states closer to the constraint
     manifold."""
     arm = TwoLinkArm2D()
-    system, world = _arm_with_world(arm)
+    mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 3, bc=-math.pi / 4)
     final = [_pin(world, arm.link_b, goal)]
-    traj_coarse = SteppingPlanner(interval=0.5).plan(system, final, horizon=1.0)
-    traj_fine = SteppingPlanner(interval=0.05).plan(system, final, horizon=1.0)
+    traj_coarse = SteppingPlanner(interval=0.5).plan(mode, final, horizon=1.0)
+    traj_fine = SteppingPlanner(interval=0.05).plan(mode, final, horizon=1.0)
     n = 50
     coarse_avg = sum(
-        _max_residual(arm.system, traj_coarse(i / n * traj_coarse.duration))
+        _max_residual(arm.mode, traj_coarse(i / n * traj_coarse.duration))
         for i in range(1, n)
     ) / (n - 1)
     fine_avg = sum(
-        _max_residual(arm.system, traj_fine(i / n * traj_fine.duration))
+        _max_residual(arm.mode, traj_fine(i / n * traj_fine.duration))
         for i in range(1, n)
     ) / (n - 1)
     assert fine_avg < coarse_avg

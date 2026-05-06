@@ -15,8 +15,8 @@ from comb.constraints import (
     RevoluteJoint2D,
 )
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
+from comb.mode import Mode, ModeState
 from comb.solver import solve
-from comb.system import System, SystemState
 from comb.transitions import ConstraintTransition, rigid_attachment_2d
 
 
@@ -63,7 +63,7 @@ def test_is_enabled_when_trigger_residual_under_tolerance():
     obj = _free_body("obj", SE2(1.0, 0.0, 0.0))
     trigger = _proximity_trigger(world, obj, target_x=1.05, target_y=0.0)
     transition = ConstraintTransition(trigger=trigger, tolerance=0.1)
-    state = SystemState(
+    state = ModeState(
         configuration=Configuration(),
         body_poses=BodyPoses({world: SE2(), obj: SE2(1.0, 0.0, 0.0)}),
     )
@@ -77,7 +77,7 @@ def test_is_disabled_when_trigger_residual_over_tolerance():
     obj = _free_body("obj", SE2(2.0, 0.0, 0.0))
     trigger = _proximity_trigger(world, obj, target_x=0.0, target_y=0.0)
     transition = ConstraintTransition(trigger=trigger, tolerance=0.1)
-    state = SystemState(
+    state = ModeState(
         configuration=Configuration(),
         body_poses=BodyPoses({world: SE2(), obj: SE2(2.0, 0.0, 0.0)}),
     )
@@ -90,12 +90,10 @@ def test_apply_raises_when_not_enabled():
     obj = _free_body("obj", SE2(2.0, 0.0, 0.0))
     trigger = _proximity_trigger(world, obj, target_x=0.0, target_y=0.0)
     transition = ConstraintTransition(trigger=trigger, tolerance=0.1)
-    system: System[SE2] = System(
-        bodies=[world, obj], constraints=[], anchored_bodies=[world]
-    )
-    state = system.snapshot()
+    mode: Mode[SE2] = Mode(bodies=[world, obj], constraints=[], anchored_bodies=[world])
+    state = mode.snapshot()
     with pytest.raises(ValueError, match="not enabled"):
-        transition.apply(system, state)
+        transition.apply(mode, state)
 
 
 def test_construction_rejects_trigger_with_mutable_parameters():
@@ -123,12 +121,12 @@ def test_construction_rejects_non_positive_tolerance():
 
 
 def test_apply_adds_constraints_from_factory():
-    """Constraints returned by ``add`` end up in the new system."""
+    """Constraints returned by ``add`` end up in the new mode."""
     world = _world_body()
     obj = _free_body("obj", SE2(0.5, 0.0, 0.0))
     trigger = _proximity_trigger(world, obj, target_x=0.5, target_y=0.0)
 
-    def add_marker(_state: SystemState[SE2]) -> list:
+    def add_marker(_state: ModeState[SE2]) -> list:
         return [
             FixedJoint2D(
                 body1=world,
@@ -141,16 +139,14 @@ def test_apply_adds_constraints_from_factory():
         ]
 
     transition = ConstraintTransition(trigger=trigger, tolerance=0.1, add=add_marker)
-    system: System[SE2] = System(
-        bodies=[world, obj], constraints=[], anchored_bodies=[world]
-    )
-    new_system = transition.apply(system, system.snapshot())
-    assert len(new_system.constraints) == 1
-    assert isinstance(new_system.constraints[0], FixedJoint2D)
+    mode: Mode[SE2] = Mode(bodies=[world, obj], constraints=[], anchored_bodies=[world])
+    new_mode = transition.apply(mode, mode.snapshot())
+    assert len(new_mode.constraints) == 1
+    assert isinstance(new_mode.constraints[0], FixedJoint2D)
 
 
 def test_apply_removes_listed_constraints():
-    """Constraints listed in ``remove`` are absent from the new system."""
+    """Constraints listed in ``remove`` are absent from the new mode."""
     world = _world_body()
     obj = _free_body("obj", SE2(0.5, 0.0, 0.0))
     existing_pin = FixedJoint2D(
@@ -165,17 +161,17 @@ def test_apply_removes_listed_constraints():
     transition = ConstraintTransition(
         trigger=trigger, tolerance=0.1, remove=(existing_pin,)
     )
-    system: System[SE2] = System(
+    mode: Mode[SE2] = Mode(
         bodies=[world, obj],
         constraints=[existing_pin],
         anchored_bodies=[world],
     )
-    new_system = transition.apply(system, system.snapshot())
-    assert not new_system.constraints
+    new_mode = transition.apply(mode, mode.snapshot())
+    assert not new_mode.constraints
 
 
-def test_apply_rejects_remove_constraint_not_in_system():
-    """Asking to remove a constraint that isn't in the system raises clearly."""
+def test_apply_rejects_remove_constraint_not_in_mode():
+    """Asking to remove a constraint that isn't in the mode raises clearly."""
     world = _world_body()
     obj = _free_body("obj", SE2(0.0, 0.0, 0.0))
     trigger = _proximity_trigger(world, obj, target_x=0.0, target_y=0.0)
@@ -188,11 +184,9 @@ def test_apply_rejects_remove_constraint_not_in_system():
         ),
     )
     transition = ConstraintTransition(trigger=trigger, tolerance=0.1, remove=(bogus,))
-    system: System[SE2] = System(
-        bodies=[world, obj], constraints=[], anchored_bodies=[world]
-    )
-    with pytest.raises(ValueError, match="not in system.constraints"):
-        transition.apply(system, system.snapshot())
+    mode: Mode[SE2] = Mode(bodies=[world, obj], constraints=[], anchored_bodies=[world])
+    with pytest.raises(ValueError, match="not in mode.constraints"):
+        transition.apply(mode, mode.snapshot())
 
 
 def test_canonical_rigid_attachment_to_end_effector():
@@ -205,27 +199,27 @@ def test_canonical_rigid_attachment_to_end_effector():
     world = _world_body()
     # Object placed so the arm's tip can reach it at angles roughly (π/2, 0).
     obj = _free_body("obj", SE2(0.0, 2.0, 0.0))
-    system: System[SE2] = System(
-        bodies=arm.system.bodies + [world, obj],
-        constraints=list(arm.system.constraints),
-        configuration=arm.system.configuration,
+    mode: Mode[SE2] = Mode(
+        bodies=arm.mode.bodies + [world, obj],
+        constraints=list(arm.mode.constraints),
+        configuration=arm.mode.configuration,
         body_poses=BodyPoses(
-            {b: arm.system.body_poses[b] for b in arm.system.bodies}
+            {b: arm.mode.body_poses[b] for b in arm.mode.bodies}
             | {world: SE2(), obj: SE2(0.0, 2.0, 0.0)}
         ),
-        anchored_bodies=arm.system.anchored_bodies + [world],
+        anchored_bodies=arm.mode.anchored_bodies + [world],
     )
     # Drive the arm to bring its tip near the object.
     new_cfg, new_poses = solve(
-        system,
+        mode,
         delta={
             arm.joint_ab: np.array([math.pi / 2]),
             arm.joint_bc: np.array([0.0]),
         },
     )
-    near_state = SystemState(configuration=new_cfg, body_poses=new_poses)
-    # Apply the new state to the system so the trigger sees the right poses.
-    system.apply(near_state)
+    near_state = ModeState(configuration=new_cfg, body_poses=new_poses)
+    # Apply the new state to the mode so the trigger sees the right poses.
+    mode.apply(near_state)
 
     # Trigger: tip (offset (1, 0) in link_b's frame) coincident with object's frame.
     trigger = PointEquality2D(
@@ -241,19 +235,19 @@ def test_canonical_rigid_attachment_to_end_effector():
         tolerance=0.05,
         add=rigid_attachment_2d(arm.link_b, obj),
     )
-    assert transition.is_enabled(system.snapshot())
+    assert transition.is_enabled(mode.snapshot())
 
-    attached_system = transition.apply(system, system.snapshot())
-    assert len(attached_system.constraints) == len(system.constraints) + 1
+    attached_mode = transition.apply(mode, mode.snapshot())
+    assert len(attached_mode.constraints) == len(mode.constraints) + 1
 
     # Now drive the arm to a different configuration and verify the object
     # tracks along — i.e. the new FixedJoint is enforced by the solver.
-    obj_pose_at_attach = SE2(attached_system.body_poses[obj])
-    link_b_pose_at_attach = SE2(attached_system.body_poses[arm.link_b])
+    obj_pose_at_attach = SE2(attached_mode.body_poses[obj])
+    link_b_pose_at_attach = SE2(attached_mode.body_poses[arm.link_b])
     rel_at_attach = link_b_pose_at_attach.inv() * obj_pose_at_attach
 
     _, after_move_poses = solve(
-        attached_system,
+        attached_mode,
         delta={arm.joint_ab: np.array([-math.pi / 4])},
     )
     rel_after_move = after_move_poses[arm.link_b].inv() * after_move_poses[obj]
