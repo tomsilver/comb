@@ -1,0 +1,59 @@
+"""Tests for the matplotlib 2D ParameterGUI."""
+
+import matplotlib
+
+matplotlib.use("Agg")  # headless backend for tests
+
+# pylint: disable=wrong-import-position
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+from matplotlib import pyplot  # noqa: E402
+from spatialmath import SE2  # noqa: E402
+
+from comb.bodies import Body, Rectangle  # noqa: E402
+from comb.examples.single_revolute_2d import SingleRevolute2D  # noqa: E402
+from comb.gui.matplotlib_2d import MatplotlibGUI2D  # noqa: E402
+from comb.system import System  # noqa: E402
+
+
+def test_gui_builds_one_slider_per_mutable_parameter():
+    """The GUI creates exactly one slider for each mutable parameter."""
+    ex = SingleRevolute2D()
+    gui = MatplotlibGUI2D(ex.system)
+    assert len(gui.sliders) == 1  # SingleRevolute2D has one mutable param (angle)
+    pyplot.close(gui.figure)
+
+
+def test_gui_refuses_system_without_anchored_bodies():
+    """A system with no anchored bodies cannot be opened in the GUI."""
+    body = Body(
+        name="lonely",
+        pose=SE2(),
+        visual_geometry=Rectangle(0.1, 0.1),
+        collision_geometry=Rectangle(0.1, 0.1),
+    )
+    system: System[SE2] = System(bodies=[body], constraints=[])
+    with pytest.raises(ValueError, match="anchored_bodies"):
+        MatplotlibGUI2D(system)
+
+
+def test_gui_slider_drives_solver_and_updates_system():
+    """Setting a slider value runs solve and updates the system's body poses."""
+    ex = SingleRevolute2D()
+    gui = MatplotlibGUI2D(ex.system)
+    initial_link_pose = ex.system.body_poses[ex.link]
+
+    gui.sliders[0].set_val(np.pi / 2)
+
+    # Configuration was updated.
+    assert ex.system.configuration[ex.joint]["angle"] == pytest.approx(
+        np.pi / 2, abs=1e-9
+    )
+    # Body pose for the link rotated to match.
+    expected_link_pose = ex.base.pose * SE2(0.0, 0.0, np.pi / 2)
+    np.testing.assert_allclose(
+        ex.system.body_poses[ex.link].A, expected_link_pose.A, atol=1e-9
+    )
+    # Sanity: the link did move.
+    assert not np.allclose(ex.system.body_poses[ex.link].A, initial_link_pose.A)
+    pyplot.close(gui.figure)
