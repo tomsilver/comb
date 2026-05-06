@@ -41,12 +41,16 @@ class MatplotlibGUI2D:
         self.system = system
         self.slider_range = slider_range
 
-        slider_specs: list[tuple[Constraint[SE2], int, str, float]] = []
+        slider_specs: list[
+            tuple[Constraint[SE2], int, str, float, tuple[float, float]]
+        ] = []
         for constraint in system.constraints:
             for i, name in enumerate(constraint.parameter_names()):
                 label = f"{constraint.body1.name}→{constraint.body2.name}.{name}"
                 init = float(system.configuration[constraint].values[i])
-                slider_specs.append((constraint, i, label, init))
+                space = constraint.parameter_spaces[i]
+                this_range = space.preferred_range(slider_range)
+                slider_specs.append((constraint, i, label, init, this_range))
 
         slider_height = 0.025
         slider_spacing = 0.012
@@ -60,7 +64,7 @@ class MatplotlibGUI2D:
         self.renderer = MatplotlibRenderer2D(ax=self.scene_ax)
 
         self.sliders: list[Slider] = []
-        for i, (constraint, idx, label, init) in enumerate(slider_specs):
+        for i, (constraint, idx, label, init, this_range) in enumerate(slider_specs):
             slider_ax = self.figure.add_axes(
                 (
                     0.35,
@@ -72,8 +76,8 @@ class MatplotlibGUI2D:
             slider = Slider(
                 slider_ax,
                 label,
-                slider_range[0],
-                slider_range[1],
+                this_range[0],
+                this_range[1],
                 valinit=init,
             )
             slider.on_changed(self._make_callback(constraint, idx))
@@ -87,7 +91,10 @@ class MatplotlibGUI2D:
         def _on_change(new_value: float) -> None:
             current = self.system.configuration[constraint].values
             delta = np.zeros_like(current)
-            delta[param_idx] = new_value - current[param_idx]
+            # Use the parameter space's geodesic difference so e.g. dragging
+            # a circular angle from near +π to near -π takes the short way.
+            space = constraint.parameter_spaces[param_idx]
+            delta[param_idx] = space.difference(new_value, float(current[param_idx]))
             new_config, new_poses = solve(self.system, delta={constraint: delta})
             for c in self.system.constraints:
                 if c.parameter_names():

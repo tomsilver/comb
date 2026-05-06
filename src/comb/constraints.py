@@ -16,13 +16,14 @@ subclass-defined ``relative_transform``. Other custom constraints can implement
 
 import abc
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Generic
 
 import numpy as np
 from spatialmath import SE2, SE3, Twist2, Twist3, UnitQuaternion
 
 from comb.bodies import Body, BodyPoses, PoseT
+from comb.parameter_spaces import Circle, ParameterSpace, Real
 
 
 @dataclass(frozen=True)
@@ -53,11 +54,23 @@ class ConstraintParameters:
 # can serve as Configuration keys even when fields contain numpy arrays.
 @dataclass(frozen=True, eq=False)
 class Constraint(abc.ABC, Generic[PoseT]):
-    """A parameterized constraint relating two bodies that share a pose type."""
+    """A parameterized constraint relating two bodies that share a pose type.
+
+    ``parameter_spaces`` declares the manifold each mutable parameter lives in
+    (Real, Circle, BoundedReal, ...). If not given, it falls back to
+    ``default_parameter_spaces()``, which defaults to all ``Real`` and is
+    overridden per-class for joints whose params are intrinsically circular.
+    """
 
     body1: Body[PoseT]
     body2: Body[PoseT]
     fixed_parameters: ConstraintParameters
+    # None at construction time means "use class default"; __post_init__
+    # resolves this to a concrete tuple. Typed as non-Optional so call sites
+    # don't need defensive None checks.
+    parameter_spaces: tuple[ParameterSpace, ...] = field(
+        default=None  # type: ignore[assignment]
+    )
 
     def __post_init__(self) -> None:
         expected = self.fixed_parameter_names()
@@ -65,6 +78,15 @@ class Constraint(abc.ABC, Generic[PoseT]):
             raise ValueError(
                 f"{type(self).__name__} expects fixed parameter names "
                 f"{expected}, got {self.fixed_parameters.names}"
+            )
+        if self.parameter_spaces is None:
+            object.__setattr__(
+                self, "parameter_spaces", self.default_parameter_spaces()
+            )
+        if len(self.parameter_spaces) != len(self.parameter_names()):
+            raise ValueError(
+                f"{type(self).__name__} expects {len(self.parameter_names())} "
+                f"parameter spaces, got {len(self.parameter_spaces)}"
             )
 
     @classmethod
@@ -76,6 +98,11 @@ class Constraint(abc.ABC, Generic[PoseT]):
     @abc.abstractmethod
     def parameter_names(cls) -> tuple[str, ...]:
         """Names of the mutable configuration parameters this constraint expects."""
+
+    @classmethod
+    def default_parameter_spaces(cls) -> tuple[ParameterSpace, ...]:
+        """Default ParameterSpace for each mutable parameter; override per-class."""
+        return tuple(Real() for _ in cls.parameter_names())
 
     @abc.abstractmethod
     def constraint_function(
@@ -183,7 +210,7 @@ class RevoluteJoint2D(Joint2D):
     """A 2D revolute joint with origin fixed in body1's frame.
 
     The rotation axis is implicit (out of the plane). The mutable parameter is
-    the joint angle in radians.
+    the joint angle in radians, defaulting to live on the circle S¹ (wraps).
     """
 
     @classmethod
@@ -194,6 +221,10 @@ class RevoluteJoint2D(Joint2D):
     def parameter_names(cls) -> tuple[str, ...]:
         return ("angle",)
 
+    @classmethod
+    def default_parameter_spaces(cls) -> tuple[ParameterSpace, ...]:
+        return (Circle(),)
+
     def relative_transform(self, parameters: ConstraintParameters) -> SE2:
         fp = self.fixed_parameters
         return SE2(fp["origin_x"], fp["origin_y"], parameters["angle"])
@@ -203,7 +234,8 @@ class RevoluteJoint2D(Joint2D):
 class RevoluteJoint3D(Joint3D):
     """A revolute joint with axis and origin fixed in body1's frame.
 
-    The mutable parameter is the joint angle in radians.
+    The mutable parameter is the joint angle in radians, defaulting to live on
+    the circle S¹ (wraps).
     """
 
     @classmethod
@@ -220,6 +252,10 @@ class RevoluteJoint3D(Joint3D):
     @classmethod
     def parameter_names(cls) -> tuple[str, ...]:
         return ("angle",)
+
+    @classmethod
+    def default_parameter_spaces(cls) -> tuple[ParameterSpace, ...]:
+        return (Circle(),)
 
     def relative_transform(self, parameters: ConstraintParameters) -> SE3:
         fp = self.fixed_parameters
@@ -266,6 +302,13 @@ class Configuration:
                 f"{type(constraint).__name__} expects parameter names "
                 f"{expected}, got {params.names}"
             )
+        for name, space, value in zip(
+            expected, constraint.parameter_spaces, params.values
+        ):
+            if not space.contains(float(value)):
+                raise ValueError(
+                    f"Parameter {name}={float(value)} is not in space {space}"
+                )
         self._parameters[constraint] = params
 
     def __contains__(self, constraint: object) -> bool:

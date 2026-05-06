@@ -69,7 +69,16 @@ def solve(
         if constraint.parameter_names():
             current = system.configuration[constraint].values.astype(float).copy()
             if constraint in delta:
-                current = current + np.asarray(delta[constraint], dtype=float)
+                # Apply each delta component via the parameter's own retract,
+                # so circular angles wrap and bounded reals clamp.
+                delta_arr = np.asarray(delta[constraint], dtype=float)
+                spaces = constraint.parameter_spaces
+                current = np.array(
+                    [
+                        spaces[i].retract(float(current[i]), float(delta_arr[i]))
+                        for i in range(len(current))
+                    ]
+                )
             params_curr[constraint] = current
 
     def evaluate_residuals() -> np.ndarray:

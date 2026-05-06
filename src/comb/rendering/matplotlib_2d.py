@@ -138,9 +138,8 @@ class MatplotlibRenderer2D(Renderer[SE2]):
         return float(np.hypot(x, y))
 
     @singledispatchmethod
-    def _geometry_radius(
-        self, geometry: Geometry[SE2]
-    ) -> float:  # pylint: disable=unused-argument
+    def _geometry_radius(self, geometry: Geometry[SE2]) -> float:
+        # pylint: disable=unused-argument
         return 0.5  # generic fallback for unknown shapes
 
     @_geometry_radius.register
