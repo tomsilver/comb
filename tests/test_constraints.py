@@ -11,10 +11,12 @@ from comb.constraints import (
     ConstraintParameters,
     FixedJoint2D,
     FixedJoint3D,
+    PlanarJoint2D,
     PointEquality2D,
     RevoluteJoint2D,
     RevoluteJoint3D,
 )
+from comb.parameter_spaces import Circle, Real
 
 
 def _make_body_3d(name: str) -> Body[SE3]:
@@ -84,6 +86,43 @@ def test_point_equality_2d_uses_body2_orientation():
         constraint.constraint_function(ConstraintParameters(np.array([]), ()), poses),
         [0.0, 0.0],
         atol=1e-12,
+    )
+
+
+def test_planar_joint_2d_structure():
+    """PlanarJoint2D has no fixed parameters and three mutable ones, with Circle on
+    theta."""
+    a, b = _make_body_2d("a"), _make_body_2d("b")
+    joint = PlanarJoint2D(
+        body1=a,
+        body2=b,
+        fixed_parameters=ConstraintParameters(values=np.array([]), names=()),
+    )
+    assert not joint.fixed_parameter_names()
+    assert joint.parameter_names() == ("tx", "ty", "theta")
+    spaces = joint.parameter_spaces
+    assert isinstance(spaces[0], Real)
+    assert isinstance(spaces[1], Real)
+    assert isinstance(spaces[2], Circle)
+
+
+def test_planar_joint_2d_residual_zero_when_relative_transform_matches():
+    """The constraint residual is zero when body2 = body1 * SE2(tx, ty, theta)."""
+    a, b = _make_body_2d("a"), _make_body_2d("b")
+    joint = PlanarJoint2D(
+        body1=a,
+        body2=b,
+        fixed_parameters=ConstraintParameters(values=np.array([]), names=()),
+    )
+    params = ConstraintParameters(
+        values=np.array([1.0, 2.0, 0.5]),
+        names=PlanarJoint2D.parameter_names(),
+    )
+    poses = BodyPoses(
+        {a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 2.0, 0.5)},
+    )
+    np.testing.assert_allclose(
+        joint.constraint_function(params, poses), [0.0, 0.0, 0.0], atol=1e-12
     )
 
 
