@@ -16,7 +16,7 @@ subclass-defined ``relative_transform``. Other custom constraints can implement
 
 import abc
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Generic
 
 import numpy as np
@@ -56,21 +56,18 @@ class ConstraintParameters:
 class Constraint(abc.ABC, Generic[PoseT]):
     """A parameterized constraint relating two bodies that share a pose type.
 
-    ``parameter_spaces`` declares the manifold each mutable parameter lives in
-    (Real, Circle, BoundedReal, ...). If not given, it falls back to
-    ``default_parameter_spaces()``, which defaults to all ``Real`` and is
-    overridden per-class for joints whose params are intrinsically circular.
+    The :attr:`parameter_spaces` property declares the manifold each mutable
+    parameter lives in (Real, Circle, BoundedReal, ...). It resolves from
+    :attr:`parameter_space_overrides` if set, else falls back to
+    :meth:`default_parameter_spaces`, which defaults to all ``Real`` and is
+    overridden per-class for joints whose parameters have intrinsic structure
+    (e.g. an angle on the circle).
     """
 
     body1: Body[PoseT]
     body2: Body[PoseT]
     fixed_parameters: ConstraintParameters
-    # None at construction time means "use class default"; __post_init__
-    # resolves this to a concrete tuple. Typed as non-Optional so call sites
-    # don't need defensive None checks.
-    parameter_spaces: tuple[ParameterSpace, ...] = field(
-        default=None  # type: ignore[assignment]
-    )
+    parameter_space_overrides: tuple[ParameterSpace, ...] | None = None
 
     def __post_init__(self) -> None:
         expected = self.fixed_parameter_names()
@@ -79,15 +76,18 @@ class Constraint(abc.ABC, Generic[PoseT]):
                 f"{type(self).__name__} expects fixed parameter names "
                 f"{expected}, got {self.fixed_parameters.names}"
             )
-        if self.parameter_spaces is None:
-            object.__setattr__(
-                self, "parameter_spaces", self.default_parameter_spaces()
-            )
         if len(self.parameter_spaces) != len(self.parameter_names()):
             raise ValueError(
                 f"{type(self).__name__} expects {len(self.parameter_names())} "
                 f"parameter spaces, got {len(self.parameter_spaces)}"
             )
+
+    @property
+    def parameter_spaces(self) -> tuple[ParameterSpace, ...]:
+        """Resolved ParameterSpace for each mutable parameter."""
+        if self.parameter_space_overrides is not None:
+            return self.parameter_space_overrides
+        return self.default_parameter_spaces()
 
     @classmethod
     @abc.abstractmethod

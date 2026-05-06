@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from matplotlib import patches
 from matplotlib.axes import Axes
-from matplotlib.backend_bases import MouseEvent
+from matplotlib.backend_bases import Event, MouseButton, MouseEvent
 
 
 class CircularDial:
@@ -55,6 +55,7 @@ class CircularDial:
 
     @property
     def val(self) -> float:
+        """The dial's current value (in radians)."""
         return self._val
 
     def set_val(self, val: float) -> None:
@@ -76,16 +77,18 @@ class CircularDial:
         self._valtext.set_text(f"{self._val:.2f}")
         self.ax.figure.canvas.draw_idle()
 
-    def _on_press(self, event: MouseEvent) -> None:
-        if event.inaxes is self.ax and event.button == 1:
+    def _on_press(self, event: Event) -> None:
+        if not isinstance(event, MouseEvent):
+            return
+        if event.inaxes is self.ax and event.button == MouseButton.LEFT:
             self._dragging = True
             self._update_from_event(event)
 
-    def _on_motion(self, event: MouseEvent) -> None:
-        if self._dragging and event.inaxes is self.ax:
+    def _on_motion(self, event: Event) -> None:
+        if self._dragging and isinstance(event, MouseEvent) and event.inaxes is self.ax:
             self._update_from_event(event)
 
-    def _on_release(self, event: MouseEvent) -> None:
+    def _on_release(self, event: Event) -> None:
         del event
         self._dragging = False
 

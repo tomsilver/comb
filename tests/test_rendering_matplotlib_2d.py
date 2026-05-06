@@ -4,29 +4,30 @@ import matplotlib
 
 matplotlib.use("Agg")  # headless backend for tests
 
-import numpy as np  # noqa: E402  pylint: disable=wrong-import-position
-import pytest  # noqa: E402  pylint: disable=wrong-import-position
-from matplotlib import (  # noqa: E402  pylint: disable=wrong-import-position
+# pylint: disable=wrong-import-position
+import numpy as np
+import pytest
+from matplotlib import (
     patches,
     pyplot,
 )
-from matplotlib.figure import (  # noqa: E402  pylint: disable=wrong-import-position
+from matplotlib.figure import (
     Figure,
 )
-from spatialmath import SE2  # noqa: E402  pylint: disable=wrong-import-position
+from spatialmath import SE2
 
-from comb.bodies import (  # noqa: E402  pylint: disable=wrong-import-position
+from comb.bodies import (
     Body,
     Geometry,
     Rectangle,
 )
-from comb.examples.single_revolute_2d import (  # noqa: E402  pylint: disable=wrong-import-position
+from comb.examples.single_revolute_2d import (
     SingleRevolute2D,
 )
-from comb.rendering.matplotlib_2d import (  # noqa: E402  pylint: disable=wrong-import-position
+from comb.rendering.matplotlib_2d import (
     MatplotlibRenderer2D,
 )
-from comb.system import System  # noqa: E402  pylint: disable=wrong-import-position
+from comb.system import System
 
 
 def test_render_draws_one_polygon_per_body():
@@ -75,7 +76,6 @@ def test_render_rejects_unknown_geometry():
 
     class MysteryShape(Geometry[SE2]):
         """A shape with no registered drawing implementation."""
-
 
     body = Body(
         name="weird",
