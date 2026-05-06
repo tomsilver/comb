@@ -13,7 +13,7 @@ and a solver updates them together.
 import abc
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from typing import Generic, TypeAlias, TypeVar
+from typing import Any, Generic, TypeAlias, TypeVar
 
 import numpy as np
 from spatialmath import SE2, SE3
@@ -97,3 +97,34 @@ class BodyPoses(Generic[PoseT]):
 
     def __iter__(self) -> Iterator[Body[PoseT]]:
         return iter(self._poses)
+
+
+def interpolate_body_poses(
+    start: BodyPoses[PoseT], end: BodyPoses[PoseT], s: float
+) -> BodyPoses[PoseT]:
+    """Per-body interpolation between two snapshots.
+
+    Dispatches on pose type: ``SE2`` / ``SE3`` use ``interp`` (shortest twist
+    path), ``np.ndarray`` is interpolated linearly. Both inputs must hold the
+    same set of bodies (compared by identity, like ``BodyPoses`` itself).
+    """
+    start_ids = {id(b) for b in start}
+    end_ids = {id(b) for b in end}
+    if start_ids != end_ids:
+        raise ValueError(
+            "interpolate_body_poses requires matching body sets in start and end"
+        )
+    result: BodyPoses[PoseT] = BodyPoses()
+    for body in start:
+        result[body] = _interpolate_pose(start[body], end[body], s)
+    return result
+
+
+def _interpolate_pose(a: Any, b: Any, s: float) -> Any:
+    if isinstance(a, SE2):
+        return a.interp(b, s)
+    if isinstance(a, SE3):
+        return a.interp(b, s)
+    if isinstance(a, np.ndarray):
+        return a + s * (b - a)
+    raise TypeError(f"Cannot interpolate pose of type {type(a).__name__}")
