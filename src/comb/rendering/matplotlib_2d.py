@@ -80,12 +80,13 @@ class MatplotlibRenderer2D(Renderer[SE2]):
     @_draw.register
     def _draw_rectangle(self, geometry: Rectangle, pose: SE2, color: str) -> None:
         sx, sy = geometry.size_x, geometry.size_y
+        ox, oy = geometry.offset_x, geometry.offset_y
         corners_body = np.array(
             [
-                [-sx / 2, -sy / 2],
-                [+sx / 2, -sy / 2],
-                [+sx / 2, +sy / 2],
-                [-sx / 2, +sy / 2],
+                [ox - sx / 2, oy - sy / 2],
+                [ox + sx / 2, oy - sy / 2],
+                [ox + sx / 2, oy + sy / 2],
+                [ox - sx / 2, oy + sy / 2],
             ]
         )
         theta = float(pose.theta())
@@ -144,4 +145,8 @@ class MatplotlibRenderer2D(Renderer[SE2]):
 
     @_geometry_radius.register
     def _rectangle_radius(self, geometry: Rectangle) -> float:
-        return float(np.hypot(geometry.size_x / 2, geometry.size_y / 2))
+        # Account for the geometry's offset so the workspace estimate covers
+        # the rectangle's actual reach from the body frame.
+        far_x = abs(geometry.offset_x) + geometry.size_x / 2
+        far_y = abs(geometry.offset_y) + geometry.size_y / 2
+        return float(np.hypot(far_x, far_y))

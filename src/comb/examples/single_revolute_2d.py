@@ -1,4 +1,10 @@
-"""A single 2D revolute joint connecting an anchored base to a link in the plane."""
+"""A single 2D revolute joint connecting an anchored base to a link in the plane.
+
+The link's body frame sits at the joint pivot (the base origin) so the link
+rotates *around the joint*, not around its midpoint. The link's rectangle
+geometry is offset along +x by ``link_length / 2`` so visually it extends
+from the joint outward.
+"""
 
 import numpy as np
 from spatialmath import SE2
@@ -21,8 +27,8 @@ class SingleRevolute2D:
         self.link = Body(
             name="link",
             pose=SE2(0.0, 0.0, initial_angle),
-            visual_geometry=Rectangle(link_length, 0.05),
-            collision_geometry=Rectangle(link_length, 0.05),
+            visual_geometry=Rectangle(link_length, 0.05, offset_x=link_length / 2),
+            collision_geometry=Rectangle(link_length, 0.05, offset_x=link_length / 2),
         )
         self.joint = RevoluteJoint2D(
             body1=self.base,

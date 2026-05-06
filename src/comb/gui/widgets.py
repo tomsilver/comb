@@ -44,8 +44,16 @@ class CircularDial:
         x, y = math.cos(self._val), math.sin(self._val)
         (self._needle,) = ax.plot([0, x], [0, y], color="tab:blue", linewidth=2)
         (self._tip,) = ax.plot([x], [y], "o", color="tab:blue", markersize=6)
+        # Just below the axes box, in the inter-widget gap. The GUI sizes
+        # ``_WIDGET_SPACING`` to leave room for this text.
         self._valtext = ax.text(
-            0.5, -0.18, f"{self._val:.2f}", transform=ax.transAxes, ha="center"
+            0.5,
+            -0.04,
+            f"{self._val:.2f}",
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=8,
         )
 
         canvas = ax.figure.canvas
