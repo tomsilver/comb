@@ -25,7 +25,11 @@ from dataclasses import dataclass, field
 from typing import Generic
 
 from comb.bodies import Body, BodyPoses, PoseT, interpolate_body_poses
-from comb.constraints import Configuration, Constraint, interpolate_configuration
+from comb.constraints import (
+    Constraint,
+    ConstraintConfiguration,
+    interpolate_constraint_configuration,
+)
 
 
 @dataclass
@@ -41,7 +45,9 @@ class Mode(Generic[PoseT]):
 
     bodies: list[Body[PoseT]]
     constraints: list[Constraint[PoseT]]
-    configuration: Configuration = field(default_factory=Configuration)
+    configuration: ConstraintConfiguration = field(
+        default_factory=ConstraintConfiguration
+    )
     body_poses: BodyPoses[PoseT] = field(default_factory=BodyPoses)
     anchored_bodies: list[Body[PoseT]] = field(default_factory=list)
 
@@ -66,7 +72,7 @@ class Mode(Generic[PoseT]):
                 )
             if constraint.parameter_names() and constraint not in self.configuration:
                 raise ValueError(
-                    f"Configuration is missing an entry for "
+                    f"ConstraintConfiguration is missing an entry for "
                     f"{type(constraint).__name__} between "
                     f"{constraint.body1.name} and {constraint.body2.name}"
                 )
@@ -77,18 +83,23 @@ class Mode(Generic[PoseT]):
     def snapshot(self) -> ModeState[PoseT]:
         """An independent ``ModeState`` capturing this mode's current state.
 
-        The returned ``Configuration`` and ``BodyPoses`` are fresh containers, so
+        The returned ``ConstraintConfiguration`` and ``BodyPoses`` are fresh containers, so
         later mutation of the mode doesn't leak into the snapshot.
         """
         return ModeState(
-            configuration=Configuration(
+            configuration=ConstraintConfiguration(
                 {c: self.configuration[c] for c in self.configuration}
             ),
             body_poses=BodyPoses({b: self.body_poses[b] for b in self.bodies}),
         )
 
-    def apply(self, state: ModeState[PoseT]) -> None:
-        """Push ``state``'s contents into this mode's mutable state in place."""
+    def set_state(self, state: ModeState[PoseT]) -> None:
+        """Mutate this mode's body_poses and configuration to match ``state``.
+
+        Inverse of :meth:`snapshot`: ``mode.set_state(mode.snapshot())`` is a
+        no-op. Used by planners and animation code that thread a single
+        mutable mode through many states without reconstructing it each time.
+        """
         for body in self.bodies:
             self.body_poses[body] = state.body_poses[body]
         for constraint in state.configuration:
@@ -99,7 +110,7 @@ class Mode(Generic[PoseT]):
 class ModeState(Generic[PoseT]):
     """Immutable snapshot of a mode's mutable state: configuration + body poses."""
 
-    configuration: Configuration
+    configuration: ConstraintConfiguration
     body_poses: BodyPoses[PoseT]
 
 
@@ -112,7 +123,7 @@ def interpolate_mode_state(
     build a ``Trajectory[ModeState[PoseT]]`` between two solver checkpoints.
     """
     return ModeState(
-        configuration=interpolate_configuration(
+        configuration=interpolate_constraint_configuration(
             start.configuration, end.configuration, s
         ),
         body_poses=interpolate_body_poses(start.body_poses, end.body_poses, s),

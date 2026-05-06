@@ -6,7 +6,7 @@ from spatialmath import SE3
 
 from comb.bodies import Body, Box
 from comb.constraints import (
-    Configuration,
+    ConstraintConfiguration,
     ConstraintParameters,
     FixedJoint3D,
     RevoluteJoint3D,
@@ -49,7 +49,7 @@ def test_mode_basic_construction():
     """A Mode[SE3] holds bodies, constraints, and a configuration."""
     a, b = _make_body("a"), _make_body("b")
     joint = _make_revolute(a, b)
-    config = Configuration.zeros([joint])
+    config = ConstraintConfiguration.zeros([joint])
     mode: Mode[SE3] = Mode(bodies=[a, b], constraints=[joint], configuration=config)
     assert mode.bodies == [a, b]
     assert mode.constraints == [joint]
@@ -72,7 +72,7 @@ def test_mode_rejects_constraint_with_unknown_body():
         Mode[SE3](
             bodies=[a, c],
             constraints=[joint],
-            configuration=Configuration.zeros([joint]),
+            configuration=ConstraintConfiguration.zeros([joint]),
         )
 
 
@@ -80,7 +80,7 @@ def test_mode_requires_configuration_for_mutable_constraint():
     """A constraint with mutable parameters must have an entry in the configuration."""
     a, b = _make_body("a"), _make_body("b")
     joint = _make_revolute(a, b)
-    with pytest.raises(ValueError, match="Configuration is missing"):
+    with pytest.raises(ValueError, match="ConstraintConfiguration is missing"):
         Mode[SE3](bodies=[a, b], constraints=[joint])
 
 
@@ -92,7 +92,7 @@ def test_mode_validate_after_mutation():
     # Add a new constraint without updating the mode; validate should catch it.
     new_revolute = _make_revolute(a, b)
     mode.constraints.append(new_revolute)
-    with pytest.raises(ValueError, match="Configuration is missing"):
+    with pytest.raises(ValueError, match="ConstraintConfiguration is missing"):
         mode.validate()
     # Add the missing config entry; now validate passes.
     mode.configuration[new_revolute] = ConstraintParameters(
@@ -122,7 +122,7 @@ def test_mode_holds_multiple_constraints():
     a, b, c = _make_body("a"), _make_body("b"), _make_body("c")
     joint_ab = _make_revolute(a, b)
     joint_bc = _make_revolute(b, c)
-    config = Configuration.zeros([joint_ab, joint_bc])
+    config = ConstraintConfiguration.zeros([joint_ab, joint_bc])
     mode: Mode[SE3] = Mode(
         bodies=[a, b, c], constraints=[joint_ab, joint_bc], configuration=config
     )

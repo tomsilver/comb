@@ -27,8 +27,7 @@ def test_system_enabled_transitions_filters_by_current_state():
     assert not tuple(system.enabled_transitions())
 
     # Drive the arm so the tip coincides with the block, then check again.
-    cfg, poses = find_satisfying_state(ex.mode, [ex.pickup_trigger])
-    ex.mode.apply(ModeState(configuration=cfg, body_poses=poses))
+    ex.mode.set_state(find_satisfying_state(ex.mode, [ex.pickup_trigger]))
     enabled = tuple(system.enabled_transitions())
     assert enabled == (ex.pickup_transition,)
 

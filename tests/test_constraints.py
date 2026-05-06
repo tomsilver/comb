@@ -6,8 +6,8 @@ from spatialmath import SE2, SE3
 
 from comb.bodies import Body, BodyPoses, Box, Rectangle
 from comb.constraints import (
-    Configuration,
     Constraint,
+    ConstraintConfiguration,
     ConstraintParameters,
     FixedJoint2D,
     FixedJoint3D,
@@ -260,10 +260,10 @@ def test_constraint_is_abstract():
 
 
 def test_configuration_basic_set_and_get():
-    """Configuration stores and returns mutable parameters per constraint."""
+    """ConstraintConfiguration stores and returns mutable parameters per constraint."""
     a, b = _make_body_3d("a"), _make_body_3d("b")
     joint = _make_revolute_3d(a, b)
-    config = Configuration()
+    config = ConstraintConfiguration()
     config[joint] = ConstraintParameters(values=np.array([0.5]), names=("angle",))
     assert config[joint]["angle"] == 0.5
     assert joint in config
@@ -274,7 +274,7 @@ def test_configuration_update_in_place():
     """Reassigning parameters for the same constraint replaces the previous value."""
     a, b = _make_body_3d("a"), _make_body_3d("b")
     joint = _make_revolute_3d(a, b)
-    config = Configuration()
+    config = ConstraintConfiguration()
     config[joint] = ConstraintParameters(values=np.array([0.0]), names=("angle",))
     config[joint] = ConstraintParameters(values=np.array([np.pi / 2]), names=("angle",))
     assert config[joint]["angle"] == pytest.approx(np.pi / 2)
@@ -282,10 +282,11 @@ def test_configuration_update_in_place():
 
 
 def test_configuration_rejects_wrong_names():
-    """Configuration rejects parameters whose names don't match the constraint."""
+    """ConstraintConfiguration rejects parameters whose names don't match the
+    constraint."""
     a, b = _make_body_3d("a"), _make_body_3d("b")
     joint = _make_revolute_3d(a, b)
-    config = Configuration()
+    config = ConstraintConfiguration()
     with pytest.raises(ValueError):
         config[joint] = ConstraintParameters(
             values=np.array([0.0]), names=("not_angle",)
@@ -293,12 +294,12 @@ def test_configuration_rejects_wrong_names():
 
 
 def test_configuration_distinguishes_constraint_instances():
-    """Two structurally identical constraints are kept as separate Configuration
-    keys."""
+    """Two structurally identical constraints are kept as separate
+    ConstraintConfiguration keys."""
     a, b = _make_body_3d("a"), _make_body_3d("b")
     joint1 = _make_revolute_3d(a, b)
     joint2 = _make_revolute_3d(a, b)
-    config = Configuration()
+    config = ConstraintConfiguration()
     config[joint1] = ConstraintParameters(values=np.array([0.1]), names=("angle",))
     config[joint2] = ConstraintParameters(values=np.array([0.9]), names=("angle",))
     assert config[joint1]["angle"] == pytest.approx(0.1)
@@ -307,10 +308,11 @@ def test_configuration_distinguishes_constraint_instances():
 
 
 def test_configuration_zeros():
-    """Configuration.zeros initializes every constraint's parameters to zero."""
+    """ConstraintConfiguration.zeros initializes every constraint's parameters to
+    zero."""
     a, b = _make_body_3d("a"), _make_body_3d("b")
     revolute = _make_revolute_3d(a, b)
-    config = Configuration.zeros([revolute])
+    config = ConstraintConfiguration.zeros([revolute])
     np.testing.assert_array_equal(config[revolute].values, [0.0])
     assert config[revolute].names == ("angle",)
 
@@ -319,7 +321,7 @@ def test_configuration_unknown_constraint_raises():
     """Looking up a constraint that was never set raises KeyError."""
     a, b = _make_body_3d("a"), _make_body_3d("b")
     joint = _make_revolute_3d(a, b)
-    config = Configuration()
+    config = ConstraintConfiguration()
     with pytest.raises(KeyError):
         _ = config[joint]
 

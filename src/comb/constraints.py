@@ -1,9 +1,9 @@
-"""Parameterized constraints between bodies, plus a Configuration holding the
+"""Parameterized constraints between bodies, plus a ConstraintConfiguration holding the
 current values of all mutable parameters in a kinematic mode.
 
 A ``Constraint`` describes the *structure* of a relationship between two bodies
 (which type, which bodies, what fixed properties). It is immutable. The current
-values of any mutable parameters live in a separate ``Configuration`` keyed by
+values of any mutable parameters live in a separate ``ConstraintConfiguration`` keyed by
 constraint instance.
 
 ``Constraint.constraint_function`` is fully generic: it returns an arbitrary
@@ -51,7 +51,7 @@ class ConstraintParameters:
 
 
 # Constraint uses identity-based equality and hashing so that distinct instances
-# can serve as Configuration keys even when fields contain numpy arrays.
+# can serve as ConstraintConfiguration keys even when fields contain numpy arrays.
 @dataclass(frozen=True, eq=False)
 class Constraint(abc.ABC, Generic[PoseT]):
     """A parameterized constraint relating two bodies that share a pose type.
@@ -330,7 +330,7 @@ class RevoluteJoint3D(Joint3D):
         return SE3.Trans(origin) * SE3.AngVec(parameters["angle"], axis)
 
 
-class Configuration:
+class ConstraintConfiguration:
     """Current values of every constraint's mutable parameters in a mode.
 
     Acts like a mutable mapping from ``Constraint`` to ``ConstraintParameters``,
@@ -348,7 +348,7 @@ class Configuration:
                 self[constraint] = params
 
     @classmethod
-    def zeros(cls, constraints: Iterable[Constraint]) -> "Configuration":
+    def zeros(cls, constraints: Iterable[Constraint]) -> "ConstraintConfiguration":
         """Build a configuration with all-zero values for the given constraints."""
         config = cls()
         for constraint in constraints:
@@ -387,25 +387,25 @@ class Configuration:
         return iter(self._parameters)
 
 
-def interpolate_configuration(
-    start: Configuration, end: Configuration, s: float
-) -> Configuration:
+def interpolate_constraint_configuration(
+    start: ConstraintConfiguration, end: ConstraintConfiguration, s: float
+) -> ConstraintConfiguration:
     """Interpolate two configurations along each parameter's manifold.
 
     For each constraint, the per-parameter ``ParameterSpace.retract`` /
     ``difference`` defines the geodesic step: circular angles take the short
     way and bounded reals stay in range. Both configurations must have entries
     for the same set of constraints (compared by identity, matching
-    ``Configuration`` lookup semantics).
+    ``ConstraintConfiguration`` lookup semantics).
     """
     start_ids = {id(c) for c in start}
     end_ids = {id(c) for c in end}
     if start_ids != end_ids:
         raise ValueError(
-            "interpolate_configuration requires matching constraint sets in "
+            "interpolate_constraint_configuration requires matching constraint sets in "
             "start and end"
         )
-    result = Configuration()
+    result = ConstraintConfiguration()
     for constraint in start:
         a_vals = start[constraint].values
         b_vals = end[constraint].values

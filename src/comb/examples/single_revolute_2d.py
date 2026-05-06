@@ -10,7 +10,11 @@ import numpy as np
 from spatialmath import SE2
 
 from comb.bodies import Body, Rectangle
-from comb.constraints import Configuration, ConstraintParameters, RevoluteJoint2D
+from comb.constraints import (
+    ConstraintConfiguration,
+    ConstraintParameters,
+    RevoluteJoint2D,
+)
 from comb.mode import Mode
 from comb.system import System
 
@@ -39,7 +43,7 @@ class SingleRevolute2D:
                 names=RevoluteJoint2D.fixed_parameter_names(),
             ),
         )
-        config = Configuration(
+        config = ConstraintConfiguration(
             {
                 self.joint: ConstraintParameters(
                     values=np.array([initial_angle]), names=("angle",)

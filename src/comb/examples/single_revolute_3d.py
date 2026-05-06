@@ -8,7 +8,11 @@ import numpy as np
 from spatialmath import SE3
 
 from comb.bodies import Body, Box
-from comb.constraints import Configuration, ConstraintParameters, RevoluteJoint3D
+from comb.constraints import (
+    ConstraintConfiguration,
+    ConstraintParameters,
+    RevoluteJoint3D,
+)
 from comb.mode import Mode
 from comb.system import System
 
@@ -37,7 +41,7 @@ class SingleRevolute3D:
                 names=RevoluteJoint3D.fixed_parameter_names(),
             ),
         )
-        config = Configuration(
+        config = ConstraintConfiguration(
             {
                 self.joint: ConstraintParameters(
                     values=np.array([initial_angle]), names=("angle",)

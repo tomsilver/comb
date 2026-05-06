@@ -118,12 +118,12 @@ class MatplotlibGUI2D:
             # a circular angle from near +π to near -π takes the short way.
             space = constraint.parameter_spaces[param_idx]
             delta[param_idx] = space.difference(new_value, float(current[param_idx]))
-            new_config, new_poses = solve(self.mode, delta={constraint: delta})
+            new_state = solve(self.mode, delta={constraint: delta})
             for c in self.mode.constraints:
                 if c.parameter_names():
-                    self.mode.configuration[c] = new_config[c]
+                    self.mode.configuration[c] = new_state.configuration[c]
             for body in self.mode.bodies:
-                self.mode.body_poses[body] = new_poses[body]
+                self.mode.body_poses[body] = new_state.body_poses[body]
             self.renderer.render(self.mode)
             self.figure.canvas.draw_idle()
 

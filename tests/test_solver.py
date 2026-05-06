@@ -6,7 +6,7 @@ from spatialmath import SE2, SE3
 
 from comb.bodies import Body, BodyPoses, Box, Rectangle
 from comb.constraints import (
-    Configuration,
+    ConstraintConfiguration,
     ConstraintParameters,
     FixedJoint3D,
     RevoluteJoint2D,
@@ -45,7 +45,9 @@ def _z_revolute(a: Body[SE3], b: Body[SE3], origin=(0.0, 0.0, 0.0)) -> RevoluteJ
     )
 
 
-def _residual_norm(mode: Mode, config: Configuration, body_poses: BodyPoses) -> float:
+def _residual_norm(
+    mode: Mode, config: ConstraintConfiguration, body_poses: BodyPoses
+) -> float:
     """Sum of L2 norms of all constraint residuals — for validation in tests."""
     norms = []
     for c in mode.constraints:
@@ -63,7 +65,7 @@ def test_solve_no_delta_keeps_valid_state():
     a = _body_3d("a")
     b = _body_3d("b", pose=SE3.AngVec(0.5, [0, 0, 1]))
     joint = _z_revolute(a, b)
-    config = Configuration(
+    config = ConstraintConfiguration(
         {joint: ConstraintParameters(values=np.array([0.5]), names=("angle",))}
     )
     mode: Mode[SE3] = Mode(
@@ -72,9 +74,9 @@ def test_solve_no_delta_keeps_valid_state():
         configuration=config,
         anchored_bodies=[a],
     )
-    new_config, new_poses = solve(mode)
-    assert _residual_norm(mode, new_config, new_poses) < 1e-9
-    assert new_config[joint]["angle"] == pytest.approx(0.5, abs=1e-9)
+    new_state = solve(mode)
+    assert _residual_norm(mode, new_state.configuration, new_state.body_poses) < 1e-9
+    assert new_state.configuration[joint]["angle"] == pytest.approx(0.5, abs=1e-9)
 
 
 def test_solve_revolute_chain_3d_is_exact():
@@ -82,7 +84,7 @@ def test_solve_revolute_chain_3d_is_exact():
     a = _body_3d("a")
     b = _body_3d("b")
     joint = _z_revolute(a, b)
-    config = Configuration(
+    config = ConstraintConfiguration(
         {joint: ConstraintParameters(values=np.array([0.0]), names=("angle",))}
     )
     mode: Mode[SE3] = Mode(
@@ -92,11 +94,11 @@ def test_solve_revolute_chain_3d_is_exact():
         anchored_bodies=[a],
     )
 
-    new_config, new_poses = solve(mode, delta={joint: np.array([np.pi / 2])})
-    assert new_config[joint]["angle"] == pytest.approx(np.pi / 2, abs=1e-9)
+    new_state = solve(mode, delta={joint: np.array([np.pi / 2])})
+    assert new_state.configuration[joint]["angle"] == pytest.approx(np.pi / 2, abs=1e-9)
     expected_b_pose = a.pose * SE3.AngVec(np.pi / 2, [0, 0, 1])
-    np.testing.assert_allclose(new_poses[b].A, expected_b_pose.A, atol=1e-9)
-    assert _residual_norm(mode, new_config, new_poses) < 1e-9
+    np.testing.assert_allclose(new_state.body_poses[b].A, expected_b_pose.A, atol=1e-9)
+    assert _residual_norm(mode, new_state.configuration, new_state.body_poses) < 1e-9
 
 
 def test_solve_two_link_chain_3d_propagates():
@@ -109,7 +111,7 @@ def test_solve_two_link_chain_3d_propagates():
     c = _body_3d("c", pose=c_pose)
     joint_ab = _z_revolute(a, b, origin=(1.0, 0.0, 0.0))
     joint_bc = _z_revolute(b, c, origin=(1.0, 0.0, 0.0))
-    config = Configuration(
+    config = ConstraintConfiguration(
         {
             joint_ab: ConstraintParameters(values=np.array([0.0]), names=("angle",)),
             joint_bc: ConstraintParameters(values=np.array([0.0]), names=("angle",)),
@@ -122,14 +124,14 @@ def test_solve_two_link_chain_3d_propagates():
         anchored_bodies=[a],
     )
 
-    new_config, new_poses = solve(mode, delta={joint_ab: np.array([np.pi / 2])})
-    assert _residual_norm(mode, new_config, new_poses) < 1e-7
+    new_state = solve(mode, delta={joint_ab: np.array([np.pi / 2])})
+    assert _residual_norm(mode, new_state.configuration, new_state.body_poses) < 1e-7
     # After rotating joint_ab by 90 deg about z (origin at (1,0,0) in a's frame),
     # body c (which is reachable through b) should end up at the propagated pose.
     expected_b = a.pose * SE3.Trans([1.0, 0.0, 0.0]) * SE3.AngVec(np.pi / 2, [0, 0, 1])
     expected_c = expected_b * SE3.Trans([1.0, 0.0, 0.0]) * SE3.AngVec(0.0, [0, 0, 1])
-    np.testing.assert_allclose(new_poses[b].A, expected_b.A, atol=1e-7)
-    np.testing.assert_allclose(new_poses[c].A, expected_c.A, atol=1e-7)
+    np.testing.assert_allclose(new_state.body_poses[b].A, expected_b.A, atol=1e-7)
+    np.testing.assert_allclose(new_state.body_poses[c].A, expected_c.A, atol=1e-7)
 
 
 def test_solve_revolute_chain_2d_is_exact():
@@ -145,7 +147,7 @@ def test_solve_revolute_chain_2d_is_exact():
             names=RevoluteJoint2D.fixed_parameter_names(),
         ),
     )
-    config = Configuration(
+    config = ConstraintConfiguration(
         {joint: ConstraintParameters(values=np.array([0.0]), names=("angle",))}
     )
     mode: Mode[SE2] = Mode(
@@ -155,10 +157,10 @@ def test_solve_revolute_chain_2d_is_exact():
         anchored_bodies=[a],
     )
 
-    new_config, new_poses = solve(mode, delta={joint: np.array([np.pi / 3])})
-    assert new_config[joint]["angle"] == pytest.approx(np.pi / 3, abs=1e-9)
+    new_state = solve(mode, delta={joint: np.array([np.pi / 3])})
+    assert new_state.configuration[joint]["angle"] == pytest.approx(np.pi / 3, abs=1e-9)
     expected_b = a.pose * SE2(0.5, 0.0, np.pi / 3)
-    np.testing.assert_allclose(new_poses[b].A, expected_b.A, atol=1e-9)
+    np.testing.assert_allclose(new_state.body_poses[b].A, expected_b.A, atol=1e-9)
 
 
 def test_solve_with_fixed_constraint_only():
@@ -175,10 +177,10 @@ def test_solve_with_fixed_constraint_only():
         ),
     )
     mode: Mode[SE3] = Mode(bodies=[a, b], constraints=[fixed], anchored_bodies=[a])
-    new_config, new_poses = solve(mode)
+    new_state = solve(mode)
     expected_b = a.pose * SE3.Trans([1.0, 2.0, 3.0])
-    np.testing.assert_allclose(new_poses[b].A, expected_b.A, atol=1e-7)
-    assert len(new_config) == 0
+    np.testing.assert_allclose(new_state.body_poses[b].A, expected_b.A, atol=1e-7)
+    assert len(new_state.configuration) == 0
 
 
 def test_solve_requires_anchored_body():
@@ -186,7 +188,7 @@ def test_solve_requires_anchored_body():
     a = _body_3d("a")
     b = _body_3d("b", pose=SE3.AngVec(0.5, [0, 0, 1]))
     joint = _z_revolute(a, b)
-    config = Configuration(
+    config = ConstraintConfiguration(
         {joint: ConstraintParameters(values=np.array([0.5]), names=("angle",))}
     )
     mode: Mode[SE3] = Mode(bodies=[a, b], constraints=[joint], configuration=config)
@@ -204,7 +206,7 @@ def test_solve_does_not_drift_over_many_calls():
     a = _body_3d("a")
     b = _body_3d("b")
     joint = _z_revolute(a, b)
-    config = Configuration(
+    config = ConstraintConfiguration(
         {joint: ConstraintParameters(values=np.array([0.0]), names=("angle",))}
     )
     mode: Mode[SE3] = Mode(
@@ -214,12 +216,12 @@ def test_solve_does_not_drift_over_many_calls():
         anchored_bodies=[a],
     )
     for _ in range(500):
-        new_config, new_poses = solve(mode, delta={joint: np.array([0.013])})
+        new_state = solve(mode, delta={joint: np.array([0.013])})
         for c in mode.constraints:
             if c.parameter_names():
-                mode.configuration[c] = new_config[c]
+                mode.configuration[c] = new_state.configuration[c]
         for body in mode.bodies:
-            mode.body_poses[body] = new_poses[body]
+            mode.body_poses[body] = new_state.body_poses[body]
     # If we got here without spatialmath complaining, we're good. As a sanity
     # check, the rotation block should still be orthonormal.
     rot = mode.body_poses[b].R
@@ -249,6 +251,6 @@ def test_solve_loop_reduces_residual():
     )
     mode: Mode[SE3] = Mode(bodies=[a, b], constraints=[f1, f2], anchored_bodies=[a])
     initial_residual = _residual_norm(mode, mode.configuration, mode.body_poses)
-    new_config, new_poses = solve(mode)
-    final_residual = _residual_norm(mode, new_config, new_poses)
+    new_state = solve(mode)
+    final_residual = _residual_norm(mode, new_state.configuration, new_state.body_poses)
     assert final_residual < initial_residual

@@ -2,7 +2,7 @@
 
 A ``Trajectory[T]`` is a function from a time in ``[0, duration]`` to a value
 of type ``T``, packaged with that finite duration. The same machinery works
-for any ``T`` — ``np.ndarray``, ``SE2`` / ``SE3`` poses, a ``Configuration``,
+for any ``T`` — ``np.ndarray``, ``SE2`` / ``SE3`` poses, a ``ConstraintConfiguration``,
 a ``BodyPoses``, etc. — by supplying the appropriate interpolator.
 
 Construction primitives:
