@@ -11,7 +11,9 @@ from comb.examples.single_revolute_2d import SingleRevolute2D
 from comb.examples.single_revolute_3d import SingleRevolute3D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
 from comb.examples.two_link_arm_3d import TwoLinkArm3D
-from comb.solver import solve
+from comb.examples.two_link_arm_with_object_2d import TwoLinkArmWithObject2D
+from comb.solver import find_satisfying_state, solve
+from comb.system import SystemState
 
 
 def _residual_norm(example_system) -> float:
@@ -116,6 +118,46 @@ def test_mobile_base_2d_solves_delta_drives_base():
     assert new_cfg[ex.joint]["tx"] == pytest.approx(1.5)
     assert new_cfg[ex.joint]["ty"] == pytest.approx(-0.5)
     assert new_cfg[ex.joint]["theta"] == pytest.approx(np.pi / 3)
+
+
+def test_arm_with_object_2d_starts_valid():
+    """The arm-with-object example builds valid: arm at zero, block pinned to world."""
+    ex = TwoLinkArmWithObject2D()
+    assert _residual_norm(ex.system) < 1e-12
+    np.testing.assert_array_equal(ex.system.body_poses[ex.block].t, [0.5, 1.0])
+    assert ex.world_to_block in ex.system.constraints
+
+
+def test_arm_with_object_2d_pickup_transition_attaches_block_to_arm():
+    """Bring the arm tip to the block, fire pickup, verify the block now follows the
+    arm."""
+    ex = TwoLinkArmWithObject2D()
+    # Drive the arm so its tip is at the block's pose by augmenting with the
+    # tip-at-block constraint and IK-solving.
+    cfg, poses = find_satisfying_state(ex.system, [ex.pickup_trigger])
+    near_state = SystemState(configuration=cfg, body_poses=poses)
+    ex.system.apply(near_state)
+    assert ex.pickup_transition.is_enabled(ex.system.snapshot())
+
+    new_system = ex.pickup_transition.apply(ex.system, ex.system.snapshot())
+    # The world→block pin is gone; the arm→block attachment is in.
+    assert ex.world_to_block not in new_system.constraints
+    assert any(
+        isinstance(c, type(ex.world_to_block))
+        and c.body1 is ex.arm.link_b
+        and c.body2 is ex.block
+        for c in new_system.constraints
+    )
+
+    # Move the arm; the block tracks along under the new constraint.
+    rel_at_attach = (
+        new_system.body_poses[ex.arm.link_b].inv() * new_system.body_poses[ex.block]
+    )
+    _, after_move_poses = solve(
+        new_system, delta={ex.arm.joint_ab: np.array([-np.pi / 6])}
+    )
+    rel_after_move = after_move_poses[ex.arm.link_b].inv() * after_move_poses[ex.block]
+    np.testing.assert_allclose(rel_after_move.A, rel_at_attach.A, atol=1e-6)
 
 
 def test_fixed_pair_3d_starts_valid():
