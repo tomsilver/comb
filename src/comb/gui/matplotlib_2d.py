@@ -35,8 +35,10 @@ ParameterWidget = Union[Slider, CircularDial]
 
 _SLIDER_HEIGHT = 0.025
 _DIAL_HEIGHT = 0.15
-_WIDGET_SPACING = 0.015
-_BOTTOM_PAD = 0.03
+# Inter-widget spacing must be large enough to host the dial's value text,
+# which renders just below the dial axes.
+_WIDGET_SPACING = 0.045
+_BOTTOM_PAD = 0.04
 # Gap between the controls strip and the scene axes — needs to be large enough
 # that a dial's title doesn't run into the scene's x-axis tick labels.
 _SCENE_GAP_ABOVE_CONTROLS = 0.10
