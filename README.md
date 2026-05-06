@@ -51,7 +51,7 @@ Generic in pose type so the same machinery works for `SE(2)` and `SE(3)`.
 
 | Term | What it is |
 |---|---|
-| `Planner` | abstract: `plan(mode, final_constraints, horizon) -> Trajectory[ModeState]` |
+| `Planner` | abstract: `plan(system, final_constraints, horizon) -> Trajectory[ModeState]`. Searches over sequences of modes (using `system.transitions`) to find a trajectory ending at a state satisfying `final_constraints`. |
 
 ### Rendering
 
@@ -138,11 +138,16 @@ for t, pose in traj.enumerate(0.1):
 
 ### `SteppingPlanner`
 
+Naive BFS over modes (using `system.transitions`) with solver-bounded
+stepping inside each mode. Handed a system whose `transitions` include
+`pickup_transition`, the planner *automatically* discovers it has to fire the
+pickup to satisfy a goal that says "block at this placement target":
+
 ```python
 from comb.planners.stepping import SteppingPlanner
 
 planner = SteppingPlanner(interval=0.1)
-trajectory = planner.plan(mode, final_constraints=[goal], horizon=2.0)
+trajectory = planner.plan(ex.system, final_constraints=[goal], horizon=2.0)
 ```
 
 ### `ConstraintTransition` and `RigidAttachment2D`

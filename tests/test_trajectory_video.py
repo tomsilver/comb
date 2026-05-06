@@ -33,6 +33,7 @@ from comb.planners.stepping import SteppingPlanner
 from comb.rendering.matplotlib_2d import MatplotlibRenderer2D
 from comb.rendering.overlays import GhostBodies
 from comb.solver import solve
+from comb.system import System
 from comb.trajectories import Trajectory, concatenate
 from tests.conftest import MAKE_VIDEOS
 
@@ -87,7 +88,7 @@ def _plan_through(
     segments = []
     goal_states: list[ModeState] = []
     for finals in waypoints:
-        segment = planner.plan(mode, finals, horizon=duration_per_segment)
+        segment = planner.plan(System(mode=mode), finals, horizon=duration_per_segment)
         segments.append(segment)
         end_state = segment(segment.duration)
         goal_states.append(end_state)

@@ -1,9 +1,9 @@
 """Trajectory planners.
 
 Each planner is a strategy class with a shared ``plan`` interface but its own
-hyperparameters as constructor arguments. Strategies emit
-``Trajectory[ModeState[PoseT]]`` so callers swap planners without rewriting
-the call site.
+hyperparameters as constructor arguments. Strategies search over sequences of
+modes (via the ``system.transitions``) and emit ``Trajectory[ModeState[PoseT]]``
+so callers swap planners without rewriting the call site.
 """
 
 import abc
@@ -11,24 +11,27 @@ from collections.abc import Iterable
 
 from comb.bodies import PoseT
 from comb.constraints import Constraint
-from comb.mode import Mode, ModeState
+from comb.mode import ModeState
+from comb.system import System
 from comb.trajectories import Trajectory
 
 
 class Planner(abc.ABC):
     """Strategy interface for trajectory planners.
 
-    A planner returns a trajectory whose start is the mode's current state
-    and whose end satisfies the mode's constraints together with
-    ``final_constraints``. Hyperparameters (interval, optimization weights,
-    sample budgets, ...) live on the subclass; ``plan`` keeps a uniform
-    signature so different strategies are interchangeable.
+    A planner returns a trajectory whose start is the system's current mode
+    and state and whose end satisfies ``final_constraints``. Mode changes
+    during the plan are driven by the ``system.transitions``: the planner is
+    free to fire any transition whose trigger it can reach. Hyperparameters
+    (BFS budget, step interval, optimization weights, ...) live on the
+    subclass; ``plan`` keeps a uniform signature so strategies are
+    interchangeable.
     """
 
     @abc.abstractmethod
     def plan(
         self,
-        mode: Mode[PoseT],
+        system: System[PoseT],
         final_constraints: Iterable[Constraint[PoseT]],
         horizon: float,
     ) -> Trajectory[ModeState[PoseT]]:
