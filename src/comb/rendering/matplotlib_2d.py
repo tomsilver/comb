@@ -10,6 +10,7 @@ origin offsets plus the largest geometry circumscribed radius. If you need
 different limits, pass ``xlim`` / ``ylim`` to the constructor.
 """
 
+from collections.abc import Iterable
 from functools import singledispatchmethod
 
 import numpy as np
@@ -18,9 +19,9 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from spatialmath import SE2
 
-from comb.bodies import Geometry, Rectangle
+from comb.bodies import Body, Geometry, Rectangle
 from comb.constraints import Constraint
-from comb.rendering.base import Renderer
+from comb.rendering.base import Overlay, Renderer
 from comb.system import System
 
 _ANCHOR_COLOR = "tab:gray"
@@ -52,13 +53,19 @@ class MatplotlibRenderer2D(Renderer[SE2]):
         self._xlim = xlim
         self._ylim = ylim
 
-    def render(self, system: System[SE2]) -> None:
+    def render(
+        self,
+        system: System[SE2],
+        overlays: Iterable[Overlay[SE2]] = (),
+    ) -> None:
         self.ax.clear()
         self.ax.set_aspect("equal")
         anchored = {id(b) for b in system.anchored_bodies}
         for body in system.bodies:
             color = _ANCHOR_COLOR if id(body) in anchored else _BODY_COLOR
-            self._draw(body.visual_geometry, system.body_poses[body], color)
+            self.draw_body(body, system.body_poses[body], color=color)
+        for overlay in overlays:
+            overlay.draw(self)
         if self._xlim is None or self._ylim is None:
             xlim, ylim = self._estimate_bounds(system)
             if self._xlim is None:
@@ -68,9 +75,19 @@ class MatplotlibRenderer2D(Renderer[SE2]):
         self.ax.set_xlim(self._xlim)
         self.ax.set_ylim(self._ylim)
 
+    def draw_body(
+        self,
+        body: Body[SE2],
+        pose: SE2,
+        *,
+        color: str,
+        alpha: float = 1.0,
+    ) -> None:
+        self._draw(body.visual_geometry, pose, color, alpha)
+
     @singledispatchmethod
     def _draw(
-        self, geometry: Geometry[SE2], pose: SE2, color: str
+        self, geometry: Geometry[SE2], pose: SE2, color: str, alpha: float
     ) -> None:  # pylint: disable=unused-argument
         raise NotImplementedError(
             f"MatplotlibRenderer2D has no drawing for {type(geometry).__name__}; "
@@ -78,7 +95,9 @@ class MatplotlibRenderer2D(Renderer[SE2]):
         )
 
     @_draw.register
-    def _draw_rectangle(self, geometry: Rectangle, pose: SE2, color: str) -> None:
+    def _draw_rectangle(
+        self, geometry: Rectangle, pose: SE2, color: str, alpha: float
+    ) -> None:
         sx, sy = geometry.size_x, geometry.size_y
         ox, oy = geometry.offset_x, geometry.offset_y
         corners_body = np.array(
@@ -99,6 +118,7 @@ class MatplotlibRenderer2D(Renderer[SE2]):
             facecolor=color,
             edgecolor="black",
             linewidth=1.0,
+            alpha=alpha,
         )
         self.ax.add_patch(polygon)
 

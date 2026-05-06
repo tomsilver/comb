@@ -12,6 +12,7 @@ interpolation between them doesn't visibly detach the links.
 """
 
 import math
+from collections.abc import Iterable
 from pathlib import Path
 
 import matplotlib
@@ -25,10 +26,11 @@ from matplotlib import animation, pyplot
 from spatialmath import SE2
 
 from comb.bodies import Body, BodyPoses, Rectangle
-from comb.constraints import ConstraintParameters, FixedJoint2D
+from comb.constraints import Constraint, ConstraintParameters, FixedJoint2D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
 from comb.planners.stepping import SteppingPlanner
 from comb.rendering.matplotlib_2d import MatplotlibRenderer2D
+from comb.rendering.overlays import GhostBodies
 from comb.solver import solve
 from comb.system import System, SystemState
 from comb.trajectories import Trajectory, concatenate
@@ -71,17 +73,26 @@ def _pin(world: Body[SE2], body: Body[SE2], pose: SE2) -> FixedJoint2D:
 
 def _plan_through(
     system: System[SE2],
-    final_constraint_sets: list[list],
+    waypoints: Iterable[Iterable[Constraint[SE2]]],
     duration_per_segment: float,
-) -> Trajectory[SystemState]:
-    """Plan to each goal constraint set in turn, applying each end to the system."""
+) -> tuple[Trajectory[SystemState], list[SystemState]]:
+    """Plan to each waypoint in turn; return the joined trajectory and per-waypoint goal
+    states.
+
+    Each waypoint is a set of final constraints handed to the planner. The end-of-
+    segment ``SystemState`` is the goal state the planner reached, so we return those
+    alongside the trajectory for visualization.
+    """
     planner = SteppingPlanner(interval=_INTERVAL)
     segments = []
-    for finals in final_constraint_sets:
+    goal_states: list[SystemState] = []
+    for finals in waypoints:
         segment = planner.plan(system, finals, horizon=duration_per_segment)
         segments.append(segment)
-        system.apply(segment(segment.duration))
-    return concatenate(segments)
+        end_state = segment(segment.duration)
+        goal_states.append(end_state)
+        system.apply(end_state)
+    return concatenate(segments), goal_states
 
 
 def _reachable_link_b_pose(arm: TwoLinkArm2D, ab: float, bc: float) -> SE2:
@@ -106,19 +117,31 @@ def test_two_link_arm_trajectory_video():
     arm = TwoLinkArm2D()
     world = _world_body()
     system = _augmented(arm, world)
-    waypoint_a = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 3)
-    waypoint_b = _reachable_link_b_pose(arm, ab=math.pi / 2, bc=math.pi / 6)
-    targets = [
-        [_pin(world, arm.link_b, waypoint_a)],
-        [_pin(world, arm.link_b, waypoint_b)],
+    pose_a = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 3)
+    pose_b = _reachable_link_b_pose(arm, ab=math.pi / 2, bc=math.pi / 6)
+    waypoints = [
+        [_pin(world, arm.link_b, pose_a)],
+        [_pin(world, arm.link_b, pose_b)],
     ]
-    traj = _plan_through(system, targets, duration_per_segment=1.0)
+    traj, goal_states = _plan_through(system, waypoints, duration_per_segment=1.0)
     assert traj.duration == pytest.approx(2.0)
 
     samples = list(traj.enumerate(0.05))
 
     fig, ax = pyplot.subplots(figsize=(5, 5))
     renderer = MatplotlibRenderer2D(ax=ax)
+
+    # Persistent ghost overlays for every waypoint goal, in distinct colors.
+    ghost_colors = ["tab:orange", "tab:green"]
+    ghosts = [
+        GhostBodies(
+            bodies=arm.system.bodies,
+            body_poses=goal.body_poses,
+            color=color,
+            alpha=0.25,
+        )
+        for goal, color in zip(goal_states, ghost_colors)
+    ]
 
     def draw(frame_idx: int) -> list:
         _, state = samples[frame_idx]
@@ -127,7 +150,7 @@ def test_two_link_arm_trajectory_video():
             arm.system.body_poses[body] = state.body_poses[body]
         for c in arm.system.configuration:
             arm.system.configuration[c] = state.configuration[c]
-        renderer.render(arm.system)
+        renderer.render(arm.system, overlays=ghosts)
         return []
 
     if not MAKE_VIDEOS:
