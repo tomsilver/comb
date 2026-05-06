@@ -12,9 +12,13 @@ Two functions:
   constraints plus any number of *extra* constraints. Useful for finding goal
   states from posed constraints (e.g. "end-effector at world pose X").
 
-Both use Gauss-Newton with a finite-difference Jacobian. Body poses update
-via SE(2)/SE(3) twist exponentials; parameters update via each
-``ParameterSpace.retract`` so circular angles wrap and bounded reals clamp.
+Both use a finite-difference Jacobian. ``solve`` is plain Gauss-Newton
+(simple, fast, fine when the start is on or near the manifold).
+``find_satisfying_state`` uses Levenberg-Marquardt damping so it stays
+robust at kinematic singularities where pure Gauss-Newton's Jacobian is
+rank-deficient and would stall. Body poses update via SE(2)/SE(3) twist
+exponentials; parameters update via each ``ParameterSpace.retract`` so
+circular angles wrap and bounded reals clamp.
 """
 
 from collections.abc import Callable, Iterable, Mapping
@@ -146,14 +150,15 @@ def solve(
     return _build_outputs(system, params_curr, body_pose_curr)
 
 
-def find_satisfying_state(
+def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statements
     system: System[PoseT],
     extra_constraints: Iterable[Constraint[PoseT]] = (),
     *,
-    max_iterations: int = 100,
+    max_iterations: int = 200,
     residual_tolerance: float = 1e-6,
     step_tolerance: float = 1e-12,
     max_step_norm: float = 1.0,
+    initial_damping: float = 1e-3,
 ) -> tuple[Configuration, BodyPoses[PoseT]]:
     """Find a state satisfying ``system.constraints + extra_constraints``.
 
@@ -161,6 +166,12 @@ def find_satisfying_state(
     values come from ``system.configuration`` / ``system.body_poses``; any
     parameterized constraint in ``extra_constraints`` not present in the
     system's configuration starts at zero.
+
+    Uses Levenberg-Marquardt: each step solves
+    ``(JᵀJ + λI) δ = -Jᵀr`` with adaptive ``λ`` (decreased when a step
+    reduces the residual, increased when it doesn't). This stays robust at
+    kinematic singularities where pure Gauss-Newton's Jacobian is
+    rank-deficient and would stall.
 
     Raises ``RuntimeError`` if the residual can't be driven below
     ``residual_tolerance`` within ``max_iterations`` — typically meaning the
@@ -231,20 +242,29 @@ def find_satisfying_state(
                 return lambda: params_curr.__setitem__(c, saved)
         raise IndexError(f"var_idx={var_idx} out of variable range")
 
-    final_residual_norm = float("inf")
+    def apply_step(step: np.ndarray) -> None:
+        for body, off in body_offsets.items():
+            twist = step[off : off + twist_dim]
+            body_pose_curr[body] = body_pose_curr[body] * exp_map(twist)
+        for c, (off, n) in param_offsets.items():
+            tangent = step[off : off + n]
+            spaces = c.parameter_spaces
+            params_curr[c] = np.array(
+                [
+                    spaces[i].retract(float(params_curr[c][i]), float(tangent[i]))
+                    for i in range(n)
+                ]
+            )
+
+    final_residual_norm = float(np.linalg.norm(evaluate_residuals()))
     if n_vars > 0:
-        prev_residual_norm = float("inf")
+        damping = initial_damping
         for _ in range(max_iterations):
+            if final_residual_norm < residual_tolerance:
+                break
             residuals = evaluate_residuals()
             if residuals.size == 0:
                 break
-            residual_norm = float(np.linalg.norm(residuals))
-            final_residual_norm = residual_norm
-            if residual_norm < residual_tolerance:
-                break
-            if prev_residual_norm - residual_norm < residual_tolerance:
-                break
-            prev_residual_norm = residual_norm
 
             jacobian = np.empty((residuals.size, n_vars))
             for v in range(n_vars):
@@ -253,27 +273,31 @@ def find_satisfying_state(
                 undo()
                 jacobian[:, v] = (r_pert - residuals) / _FD_EPSILON
 
-            step, *_ = np.linalg.lstsq(jacobian, -residuals, rcond=None)
+            # Levenberg-Marquardt: stack a sqrt(λ)·I block onto J so the
+            # least-squares solution is (JᵀJ + λI)⁻¹ Jᵀ(-r).
+            damped_j = np.vstack([jacobian, np.sqrt(damping) * np.eye(n_vars)])
+            damped_r = np.concatenate([-residuals, np.zeros(n_vars)])
+            step, *_ = np.linalg.lstsq(damped_j, damped_r, rcond=None)
+
             step_norm = float(np.linalg.norm(step))
             if step_norm > max_step_norm:
                 step = step * (max_step_norm / step_norm)
             if step_norm < step_tolerance:
                 break
 
-            for body, off in body_offsets.items():
-                twist = step[off : off + twist_dim]
-                body_pose_curr[body] = body_pose_curr[body] * exp_map(twist)
-            for c, (off, n) in param_offsets.items():
-                tangent = step[off : off + n]
-                spaces = c.parameter_spaces
-                params_curr[c] = np.array(
-                    [
-                        spaces[i].retract(float(params_curr[c][i]), float(tangent[i]))
-                        for i in range(n)
-                    ]
-                )
-        # Final residual check after the loop.
-        final_residual_norm = float(np.linalg.norm(evaluate_residuals()))
+            saved_poses = dict(body_pose_curr)
+            saved_params = {c: v.copy() for c, v in params_curr.items()}
+            apply_step(step)
+            new_residual_norm = float(np.linalg.norm(evaluate_residuals()))
+            if new_residual_norm < final_residual_norm:
+                final_residual_norm = new_residual_norm
+                damping = max(damping / 10.0, 1e-9)
+            else:
+                # Revert and try with stronger damping next iteration.
+                body_pose_curr.update(saved_poses)
+                params_curr.clear()
+                params_curr.update(saved_params)
+                damping = min(damping * 10.0, 1e6)
 
     if final_residual_norm > residual_tolerance:
         raise RuntimeError(

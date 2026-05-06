@@ -16,9 +16,10 @@ dependencies = [
 
 [project.optional-dependencies]
 develop = [
-    "black",
+    "black[jupyter]",
     "docformatter",
     "isort",
+    "jupyter",
     "mypy",
     "pylint>=2.14.5",
     "pytest-pylint>=0.18.0",

@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generic
 
+from spatialmath import SE2
+
 from comb.bodies import Body, BodyPoses, PoseT
 from comb.rendering.base import Overlay, Renderer
 
@@ -35,3 +37,37 @@ class GhostBodies(Overlay[PoseT], Generic[PoseT]):
                     color=self.color,
                     alpha=self.alpha,
                 )
+
+
+@dataclass(frozen=True)
+class PointMarker2D(Overlay[SE2]):
+    """A 2D world-point marker (star, circle, ...) drawn over the system.
+
+    Useful for visualizing target positions, waypoints, or any single point
+    of interest. Currently requires a renderer that exposes a matplotlib
+    ``ax`` attribute (i.e. ``MatplotlibRenderer2D``).
+    """
+
+    x: float
+    y: float
+    marker: str = "*"
+    color: str = "tab:orange"
+    size: float = 200.0
+    edgecolor: str = "black"
+
+    def draw(self, renderer: Renderer[SE2]) -> None:
+        ax = getattr(renderer, "ax", None)
+        if ax is None:
+            raise NotImplementedError(
+                "PointMarker2D requires a renderer with an ``ax`` attribute; "
+                f"got {type(renderer).__name__}"
+            )
+        ax.scatter(
+            [self.x],
+            [self.y],
+            marker=self.marker,
+            c=self.color,
+            s=self.size,
+            edgecolors=self.edgecolor,
+            zorder=10,
+        )

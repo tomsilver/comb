@@ -206,6 +206,43 @@ class FixedJoint3D(Joint3D):
 
 
 @dataclass(frozen=True, eq=False)
+class PointEquality2D(Constraint[SE2]):
+    """A point fixed in ``body2``'s frame coincides with a point in ``body1``'s frame.
+
+    Residual (2-vector, in world coords)::
+
+        (body1.pose * (target_x, target_y)) - (body2.pose * (offset_x, offset_y))
+
+    Position-only — leaves orientation free, unlike ``FixedJoint2D``. Typical
+    usage: ``body1`` = anchored world body, ``target_x``/``target_y`` = world
+    target, ``body2`` = end-effector, ``offset_x``/``offset_y`` = tip location
+    in the end-effector's frame.
+    """
+
+    @classmethod
+    def fixed_parameter_names(cls) -> tuple[str, ...]:
+        return ("target_x", "target_y", "offset_x", "offset_y")
+
+    @classmethod
+    def parameter_names(cls) -> tuple[str, ...]:
+        return ()
+
+    def constraint_function(  # pylint: disable=unused-argument
+        self,
+        parameters: ConstraintParameters,
+        body_poses: BodyPoses[SE2],
+    ) -> np.ndarray:
+        fp = self.fixed_parameters
+        target_in_b1 = SE2(fp["target_x"], fp["target_y"], 0.0)
+        offset_in_b2 = SE2(fp["offset_x"], fp["offset_y"], 0.0)
+        target_world = body_poses[self.body1] * target_in_b1
+        tip_world = body_poses[self.body2] * offset_in_b2
+        return np.asarray(target_world.t, dtype=float) - np.asarray(
+            tip_world.t, dtype=float
+        )
+
+
+@dataclass(frozen=True, eq=False)
 class RevoluteJoint2D(Joint2D):
     """A 2D revolute joint with origin fixed in body1's frame.
 

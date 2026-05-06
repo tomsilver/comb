@@ -11,6 +11,7 @@ from comb.constraints import (
     ConstraintParameters,
     FixedJoint2D,
     FixedJoint3D,
+    PointEquality2D,
     RevoluteJoint2D,
     RevoluteJoint3D,
 )
@@ -31,6 +32,58 @@ def _make_body_2d(name: str) -> Body[SE2]:
         pose=SE2(),
         visual_geometry=Rectangle(0.1, 0.1),
         collision_geometry=Rectangle(0.1, 0.1),
+    )
+
+
+def test_point_equality_2d_residual_zero_when_tip_meets_target():
+    """The residual is zero exactly when body2's offset point matches body1's target
+    point."""
+    world = _make_body_2d("world")
+    end_effector = _make_body_2d("ee")
+    # Tip in end-effector's frame is at (1, 0). World target is at (3, 4).
+    constraint = PointEquality2D(
+        body1=world,
+        body2=end_effector,
+        fixed_parameters=ConstraintParameters(
+            values=np.array([3.0, 4.0, 1.0, 0.0]),
+            names=PointEquality2D.fixed_parameter_names(),
+        ),
+    )
+    # Place end-effector at (2, 4, 0): tip at (3, 4). Residual zero.
+    poses = BodyPoses({world: SE2(), end_effector: SE2(2.0, 4.0, 0.0)})
+    np.testing.assert_allclose(
+        constraint.constraint_function(ConstraintParameters(np.array([]), ()), poses),
+        [0.0, 0.0],
+        atol=1e-12,
+    )
+    # Move end-effector. Residual is the tip displacement from target.
+    poses[end_effector] = SE2(0.0, 0.0, 0.0)
+    np.testing.assert_allclose(
+        constraint.constraint_function(ConstraintParameters(np.array([]), ()), poses),
+        [3.0 - 1.0, 4.0 - 0.0],
+        atol=1e-12,
+    )
+
+
+def test_point_equality_2d_uses_body2_orientation():
+    """The offset is in body2's frame, so its rotation moves the tip in world coords."""
+    world = _make_body_2d("world")
+    end_effector = _make_body_2d("ee")
+    # Tip at (1, 0) in body2's frame. Target at (0, 1) in world.
+    constraint = PointEquality2D(
+        body1=world,
+        body2=end_effector,
+        fixed_parameters=ConstraintParameters(
+            values=np.array([0.0, 1.0, 1.0, 0.0]),
+            names=PointEquality2D.fixed_parameter_names(),
+        ),
+    )
+    # Body2 at origin, rotated 90°: tip is at (0, 1). Residual zero.
+    poses = BodyPoses({world: SE2(), end_effector: SE2(0.0, 0.0, np.pi / 2)})
+    np.testing.assert_allclose(
+        constraint.constraint_function(ConstraintParameters(np.array([]), ()), poses),
+        [0.0, 0.0],
+        atol=1e-12,
     )
 
 
