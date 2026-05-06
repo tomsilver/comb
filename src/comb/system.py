@@ -13,13 +13,17 @@ which no entry is provided are auto-populated from each ``Body.pose``.
 floor, a robot base bolted to the world). The solver only updates poses of
 non-anchored bodies; without at least one anchor, the SE(2)/SE(3) gauge is
 ambiguous and the solver will refuse to run.
+
+``SystemState`` is an immutable snapshot of the system's mutable state — the
+``(configuration, body_poses)`` pair that ``solve()`` returns. It is the
+natural value type for trajectories that drive a system through time.
 """
 
 from dataclasses import dataclass, field
 from typing import Generic
 
-from comb.bodies import Body, BodyPoses, PoseT
-from comb.constraints import Configuration, Constraint
+from comb.bodies import Body, BodyPoses, PoseT, interpolate_body_poses
+from comb.constraints import Configuration, Constraint, interpolate_configuration
 
 
 @dataclass
@@ -67,3 +71,27 @@ class System(Generic[PoseT]):
         for body in self.anchored_bodies:
             if id(body) not in body_ids:
                 raise ValueError(f"Anchored body {body.name!r} is not in the system")
+
+
+@dataclass(frozen=True)
+class SystemState(Generic[PoseT]):
+    """Immutable snapshot of a system's mutable state: configuration + body poses."""
+
+    configuration: Configuration
+    body_poses: BodyPoses[PoseT]
+
+
+def interpolate_system_state(
+    start: SystemState[PoseT], end: SystemState[PoseT], s: float
+) -> SystemState[PoseT]:
+    """Interpolate two system states by interpolating each piece independently.
+
+    Use as the ``interpolate`` argument to ``trajectories.linear_segment`` to
+    build a ``Trajectory[SystemState[PoseT]]`` between two solver checkpoints.
+    """
+    return SystemState(
+        configuration=interpolate_configuration(
+            start.configuration, end.configuration, s
+        ),
+        body_poses=interpolate_body_poses(start.body_poses, end.body_poses, s),
+    )

@@ -319,3 +319,40 @@ class Configuration:
 
     def __iter__(self) -> Iterator[Constraint]:
         return iter(self._parameters)
+
+
+def interpolate_configuration(
+    start: Configuration, end: Configuration, s: float
+) -> Configuration:
+    """Interpolate two configurations along each parameter's manifold.
+
+    For each constraint, the per-parameter ``ParameterSpace.retract`` /
+    ``difference`` defines the geodesic step: circular angles take the short
+    way and bounded reals stay in range. Both configurations must have entries
+    for the same set of constraints (compared by identity, matching
+    ``Configuration`` lookup semantics).
+    """
+    start_ids = {id(c) for c in start}
+    end_ids = {id(c) for c in end}
+    if start_ids != end_ids:
+        raise ValueError(
+            "interpolate_configuration requires matching constraint sets in "
+            "start and end"
+        )
+    result = Configuration()
+    for constraint in start:
+        a_vals = start[constraint].values
+        b_vals = end[constraint].values
+        spaces = constraint.parameter_spaces
+        names = constraint.parameter_names()
+        new_values = np.array(
+            [
+                spaces[i].retract(
+                    float(a_vals[i]),
+                    s * spaces[i].difference(float(b_vals[i]), float(a_vals[i])),
+                )
+                for i in range(len(names))
+            ]
+        )
+        result[constraint] = ConstraintParameters(values=new_values, names=names)
+    return result
