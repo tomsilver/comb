@@ -1,119 +1,42 @@
-"""System: a container for bodies, constraints, configuration, and body poses.
+"""System: a mode plus the transitions that can change it.
 
-The ``System`` is the central object that downstream code (rendering, forward
-kinematics, collision detection, simulation, optimization) operates on.
+A ``Mode`` (see ``comb.mode``) is the per-mode container — bodies, constraints,
+configuration, body poses, anchored bodies. Per-mode operations (``solve``,
+``find_satisfying_state``, single-mode planners) take a ``Mode`` directly.
 
-It is generic in the pose type, so a ``System[SE2]`` is statically distinct
-from a ``System[SE3]`` — useful e.g. for choosing a 2D vs 3D renderer.
-
-``body_poses`` holds the current pose for each body in the system. Bodies for
-which no entry is provided are auto-populated from each ``Body.pose``.
-
-``anchored_bodies`` are bodies whose poses are fixed under solving (e.g. a
-floor, a robot base bolted to the world). The solver only updates poses of
-non-anchored bodies; without at least one anchor, the SE(2)/SE(3) gauge is
-ambiguous and the solver will refuse to run.
-
-``SystemState`` is an immutable snapshot of the system's mutable state — the
-``(configuration, body_poses)`` pair that ``solve()`` returns. It is the
-natural value type for trajectories that drive a system through time.
+A ``System`` is the multi-mode wrapper: a ``Mode`` plus the
+``ConstraintTransitions`` that can fire to swap one constraint topology for
+another. Higher-level reasoning (task-and-motion planning, mode-aware
+simulation) takes a ``System``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Generic
 
-from comb.bodies import Body, BodyPoses, PoseT, interpolate_body_poses
-from comb.constraints import Configuration, Constraint, interpolate_configuration
-
-
-@dataclass
-class System(Generic[PoseT]):
-    """A kinematic system: bodies + constraints + configuration + body poses.
-
-    On construction we (i) auto-populate missing entries in ``body_poses`` from
-    each ``Body.pose``, then (ii) check that every constraint's bodies are in
-    the system and every constraint with mutable parameters has an entry in
-    the configuration. If you mutate ``bodies`` or ``constraints`` after
-    construction, call :meth:`validate` to re-check.
-    """
-
-    bodies: list[Body[PoseT]]
-    constraints: list[Constraint[PoseT]]
-    configuration: Configuration = field(default_factory=Configuration)
-    body_poses: BodyPoses[PoseT] = field(default_factory=BodyPoses)
-    anchored_bodies: list[Body[PoseT]] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        for body in self.bodies:
-            if body not in self.body_poses:
-                self.body_poses[body] = body.pose
-        self.validate()
-
-    def validate(self) -> None:
-        """Check that constraint bodies are in the system and the config is complete."""
-        body_ids = {id(b) for b in self.bodies}
-        for constraint in self.constraints:
-            if (
-                id(constraint.body1) not in body_ids
-                or id(constraint.body2) not in body_ids
-            ):
-                raise ValueError(
-                    f"{type(constraint).__name__} references bodies "
-                    f"({constraint.body1.name}, {constraint.body2.name}) not in "
-                    f"the system"
-                )
-            if constraint.parameter_names() and constraint not in self.configuration:
-                raise ValueError(
-                    f"Configuration is missing an entry for "
-                    f"{type(constraint).__name__} between "
-                    f"{constraint.body1.name} and {constraint.body2.name}"
-                )
-        for body in self.anchored_bodies:
-            if id(body) not in body_ids:
-                raise ValueError(f"Anchored body {body.name!r} is not in the system")
-
-    def snapshot(self) -> SystemState[PoseT]:
-        """An independent ``SystemState`` capturing this system's current state.
-
-        The returned ``Configuration`` and ``BodyPoses`` are fresh containers, so
-        later mutation of the system doesn't leak into the snapshot.
-        """
-        return SystemState(
-            configuration=Configuration(
-                {c: self.configuration[c] for c in self.configuration}
-            ),
-            body_poses=BodyPoses({b: self.body_poses[b] for b in self.bodies}),
-        )
-
-    def apply(self, state: SystemState[PoseT]) -> None:
-        """Push ``state``'s contents into this system's mutable state in place."""
-        for body in self.bodies:
-            self.body_poses[body] = state.body_poses[body]
-        for constraint in state.configuration:
-            self.configuration[constraint] = state.configuration[constraint]
+from comb.bodies import PoseT
+from comb.mode import Mode
+from comb.transitions import ConstraintTransition
 
 
 @dataclass(frozen=True)
-class SystemState(Generic[PoseT]):
-    """Immutable snapshot of a system's mutable state: configuration + body poses."""
+class System(Generic[PoseT]):
+    """A mode + the transitions that can fire from it.
 
-    configuration: Configuration
-    body_poses: BodyPoses[PoseT]
-
-
-def interpolate_system_state(
-    start: SystemState[PoseT], end: SystemState[PoseT], s: float
-) -> SystemState[PoseT]:
-    """Interpolate two system states by interpolating each piece independently.
-
-    Use as the ``interpolate`` argument to ``trajectories.linear_segment`` to
-    build a ``Trajectory[SystemState[PoseT]]`` between two solver checkpoints.
+    ``mode`` captures what the system looks like *right now* — bodies,
+    constraints, configuration, poses. ``transitions`` is the list of mode
+    changes available in this scene; each is a ``ConstraintTransition`` that
+    can fire when its trigger is satisfied, producing a new ``Mode``. Whether
+    ``transitions`` is filtered to "currently applicable" is up to the caller;
+    most planners will just iterate it and call ``transition.is_enabled(state)``.
     """
-    return SystemState(
-        configuration=interpolate_configuration(
-            start.configuration, end.configuration, s
-        ),
-        body_poses=interpolate_body_poses(start.body_poses, end.body_poses, s),
-    )
+
+    mode: Mode[PoseT]
+    transitions: tuple[ConstraintTransition[PoseT], ...] = field(default_factory=tuple)
+
+    def enabled_transitions(self) -> Iterable[ConstraintTransition[PoseT]]:
+        """Transitions whose triggers currently hold at the mode's snapshot."""
+        snapshot = self.mode.snapshot()
+        return tuple(t for t in self.transitions if t.is_enabled(snapshot))

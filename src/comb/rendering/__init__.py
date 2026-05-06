@@ -1,4 +1,4 @@
-"""Rendering: drawing a System's current body poses to some output surface.
+"""Rendering: drawing a Mode's current body poses to some output surface.
 
 Renderers are organized by backend and dimension because the toolkit and
 idioms for 2D vs 3D are quite different (matplotlib works well for 2D but a
@@ -9,5 +9,5 @@ per-geometry drawing methods via single dispatch.
 
 The currently implemented renderer is
 :class:`comb.rendering.matplotlib_2d.MatplotlibRenderer2D`, which only handles
-``System[SE2]``.
+``Mode[SE2]``.
 """

@@ -11,6 +11,7 @@ from spatialmath import SE2
 
 from comb.bodies import Body, Rectangle
 from comb.constraints import Configuration, ConstraintParameters, RevoluteJoint2D
+from comb.mode import Mode
 from comb.system import System
 
 
@@ -66,9 +67,10 @@ class TwoLinkArm2D:
                 ),
             }
         )
-        self.system: System[SE2] = System(
+        self.mode: Mode[SE2] = Mode(
             bodies=[self.base, self.link_a, self.link_b],
             constraints=[self.joint_ab, self.joint_bc],
             configuration=config,
             anchored_bodies=[self.base],
         )
+        self.system: System[SE2] = System(mode=self.mode)

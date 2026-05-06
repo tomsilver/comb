@@ -1,4 +1,4 @@
-"""Matplotlib-backed interactive GUI for adjusting a ``System[SE2]``.
+"""Matplotlib-backed interactive GUI for adjusting a ``Mode[SE2]``.
 
 This GUI is 2D-only and pairs with the matplotlib 2D renderer in
 ``comb.rendering.matplotlib_2d``. A 3D GUI will likely use a different
@@ -7,13 +7,13 @@ library (meshcat, pyvista, ...) and live in a sibling module
 high-level "widget drives the solver, then re-render" pattern.
 
 The GUI builds one widget per mutable parameter across all constraints in the
-system. Widget choice is dispatched on the parameter's
+mode. Widget choice is dispatched on the parameter's
 :class:`~comb.parameter_spaces.ParameterSpace`: a circular angle gets a
 :class:`~comb.gui.widgets.CircularDial`, everything else gets a slider with
 the space's preferred range. On widget change the GUI computes the
 geodesic-aware delta from the current configuration, calls ``solve``, applies
-the resulting configuration and body poses to the system, and asks the
-renderer to redraw. Requires ``system.anchored_bodies`` to be non-empty.
+the resulting configuration and body poses to the mode, and asks the
+renderer to redraw. Requires ``mode.anchored_bodies`` to be non-empty.
 """
 
 from collections.abc import Callable
@@ -26,10 +26,10 @@ from spatialmath import SE2
 
 from comb.constraints import Constraint
 from comb.gui.widgets import CircularDial
+from comb.mode import Mode
 from comb.parameter_spaces import Circle, ParameterSpace
 from comb.rendering.matplotlib_2d import MatplotlibRenderer2D
 from comb.solver import solve
-from comb.system import System
 
 ParameterWidget = Union[Slider, CircularDial]
 
@@ -46,25 +46,25 @@ _SCENE_TOP = 0.95
 
 
 class MatplotlibGUI2D:
-    """Interactive matplotlib GUI for adjusting a ``System[SE2]``'s parameters."""
+    """Interactive matplotlib GUI for adjusting a ``Mode[SE2]``'s parameters."""
 
     def __init__(
         self,
-        system: System[SE2],
+        mode: Mode[SE2],
         slider_range: tuple[float, float] = (-np.pi, np.pi),
     ) -> None:
-        if not system.anchored_bodies:
+        if not mode.anchored_bodies:
             raise ValueError(
-                "MatplotlibGUI2D requires system.anchored_bodies to be non-empty"
+                "MatplotlibGUI2D requires mode.anchored_bodies to be non-empty"
             )
-        self.system = system
+        self.mode = mode
         self.slider_range = slider_range
 
         widget_specs: list[tuple[Constraint[SE2], int, str, float, ParameterSpace]] = []
-        for constraint in system.constraints:
+        for constraint in mode.constraints:
             for i, name in enumerate(constraint.parameter_names()):
                 label = f"{constraint.body1.name}→{constraint.body2.name}.{name}"
-                init = float(system.configuration[constraint].values[i])
+                init = float(mode.configuration[constraint].values[i])
                 space = constraint.parameter_spaces[i]
                 widget_specs.append((constraint, i, label, init, space))
 
@@ -91,7 +91,7 @@ class MatplotlibGUI2D:
             self.widgets.append(widget)
             y_top -= _WIDGET_SPACING
 
-        self.renderer.render(self.system)
+        self.renderer.render(self.mode)
 
     def _make_widget(
         self,
@@ -112,19 +112,19 @@ class MatplotlibGUI2D:
         self, constraint: Constraint[SE2], param_idx: int
     ) -> Callable[[float], None]:
         def _on_change(new_value: float) -> None:
-            current = self.system.configuration[constraint].values
+            current = self.mode.configuration[constraint].values
             delta = np.zeros_like(current)
             # Use the parameter space's geodesic difference so e.g. dragging
             # a circular angle from near +π to near -π takes the short way.
             space = constraint.parameter_spaces[param_idx]
             delta[param_idx] = space.difference(new_value, float(current[param_idx]))
-            new_config, new_poses = solve(self.system, delta={constraint: delta})
-            for c in self.system.constraints:
+            new_config, new_poses = solve(self.mode, delta={constraint: delta})
+            for c in self.mode.constraints:
                 if c.parameter_names():
-                    self.system.configuration[c] = new_config[c]
-            for body in self.system.bodies:
-                self.system.body_poses[body] = new_poses[body]
-            self.renderer.render(self.system)
+                    self.mode.configuration[c] = new_config[c]
+            for body in self.mode.bodies:
+                self.mode.body_poses[body] = new_poses[body]
+            self.renderer.render(self.mode)
             self.figure.canvas.draw_idle()
 
         return _on_change

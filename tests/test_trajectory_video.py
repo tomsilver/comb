@@ -1,4 +1,4 @@
-"""Watch a SystemState trajectory of the 2D two-link arm.
+"""Watch a ModeState trajectory of the 2D two-link arm.
 
 Run with ``pytest tests/test_trajectory_video.py --make-videos`` to render a gif into
 ``unit_test_videos/`` so you can eyeball the trajectory. Without the flag, the test
@@ -28,11 +28,11 @@ from spatialmath import SE2
 from comb.bodies import Body, BodyPoses, Rectangle
 from comb.constraints import Constraint, ConstraintParameters, FixedJoint2D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
+from comb.mode import Mode, ModeState
 from comb.planners.stepping import SteppingPlanner
 from comb.rendering.matplotlib_2d import MatplotlibRenderer2D
 from comb.rendering.overlays import GhostBodies
 from comb.solver import solve
-from comb.system import System, SystemState
 from comb.trajectories import Trajectory, concatenate
 from tests.conftest import MAKE_VIDEOS
 
@@ -48,15 +48,15 @@ def _world_body() -> Body[SE2]:
     )
 
 
-def _augmented(arm: TwoLinkArm2D, world: Body[SE2]) -> System[SE2]:
-    return System(
-        bodies=arm.system.bodies + [world],
-        constraints=list(arm.system.constraints),
-        configuration=arm.system.configuration,
+def _augmented(arm: TwoLinkArm2D, world: Body[SE2]) -> Mode[SE2]:
+    return Mode(
+        bodies=arm.mode.bodies + [world],
+        constraints=list(arm.mode.constraints),
+        configuration=arm.mode.configuration,
         body_poses=BodyPoses(
-            {b: arm.system.body_poses[b] for b in arm.system.bodies} | {world: SE2()}
+            {b: arm.mode.body_poses[b] for b in arm.mode.bodies} | {world: SE2()}
         ),
-        anchored_bodies=arm.system.anchored_bodies + [world],
+        anchored_bodies=arm.mode.anchored_bodies + [world],
     )
 
 
@@ -72,33 +72,33 @@ def _pin(world: Body[SE2], body: Body[SE2], pose: SE2) -> FixedJoint2D:
 
 
 def _plan_through(
-    system: System[SE2],
+    mode: Mode[SE2],
     waypoints: Iterable[Iterable[Constraint[SE2]]],
     duration_per_segment: float,
-) -> tuple[Trajectory[SystemState], list[SystemState]]:
+) -> tuple[Trajectory[ModeState], list[ModeState]]:
     """Plan to each waypoint in turn; return the joined trajectory and per-waypoint goal
     states.
 
     Each waypoint is a set of final constraints handed to the planner. The end-of-
-    segment ``SystemState`` is the goal state the planner reached, so we return those
+    segment ``ModeState`` is the goal state the planner reached, so we return those
     alongside the trajectory for visualization.
     """
     planner = SteppingPlanner(interval=_INTERVAL)
     segments = []
-    goal_states: list[SystemState] = []
+    goal_states: list[ModeState] = []
     for finals in waypoints:
-        segment = planner.plan(system, finals, horizon=duration_per_segment)
+        segment = planner.plan(mode, finals, horizon=duration_per_segment)
         segments.append(segment)
         end_state = segment(segment.duration)
         goal_states.append(end_state)
-        system.apply(end_state)
+        mode.apply(end_state)
     return concatenate(segments), goal_states
 
 
 def _reachable_link_b_pose(arm: TwoLinkArm2D, ab: float, bc: float) -> SE2:
     """End-effector pose reachable at the given joint angles (constructed via solve)."""
     _, poses = solve(
-        arm.system,
+        arm.mode,
         delta={
             arm.joint_ab: np.array([ab]),
             arm.joint_bc: np.array([bc]),
@@ -116,14 +116,14 @@ def test_two_link_arm_trajectory_video():
     """
     arm = TwoLinkArm2D()
     world = _world_body()
-    system = _augmented(arm, world)
+    mode = _augmented(arm, world)
     pose_a = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 3)
     pose_b = _reachable_link_b_pose(arm, ab=math.pi / 2, bc=math.pi / 6)
     waypoints = [
         [_pin(world, arm.link_b, pose_a)],
         [_pin(world, arm.link_b, pose_b)],
     ]
-    traj, goal_states = _plan_through(system, waypoints, duration_per_segment=1.0)
+    traj, goal_states = _plan_through(mode, waypoints, duration_per_segment=1.0)
     assert traj.duration == pytest.approx(2.0)
 
     samples = list(traj.enumerate(0.05))
@@ -135,7 +135,7 @@ def test_two_link_arm_trajectory_video():
     ghost_colors = ["tab:orange", "tab:green"]
     ghosts = [
         GhostBodies(
-            bodies=arm.system.bodies,
+            bodies=arm.mode.bodies,
             body_poses=goal.body_poses,
             color=color,
             alpha=0.25,
@@ -145,12 +145,12 @@ def test_two_link_arm_trajectory_video():
 
     def draw(frame_idx: int) -> list:
         _, state = samples[frame_idx]
-        # Renderer draws the original arm system; just push the moving bodies in.
-        for body in arm.system.bodies:
-            arm.system.body_poses[body] = state.body_poses[body]
-        for c in arm.system.configuration:
-            arm.system.configuration[c] = state.configuration[c]
-        renderer.render(arm.system, overlays=ghosts)
+        # Renderer draws the original arm mode; just push the moving bodies in.
+        for body in arm.mode.bodies:
+            arm.mode.body_poses[body] = state.body_poses[body]
+        for c in arm.mode.configuration:
+            arm.mode.configuration[c] = state.configuration[c]
+        renderer.render(arm.mode, overlays=ghosts)
         return []
 
     if not MAKE_VIDEOS:

@@ -1,6 +1,6 @@
 """Built-in renderer overlays.
 
-Overlays add extra content on top of a system's main rendering. Each overlay
+Overlays add extra content on top of a mode's main rendering. Each overlay
 is generic in the pose type so it pairs with a matching ``Renderer[PoseT]``.
 """
 
@@ -20,7 +20,7 @@ class GhostBodies(Overlay[PoseT], Generic[PoseT]):
     """Faded rendering of a set of bodies at given poses.
 
     Useful for visualizing goal states, prior states, or any "where this
-    could be" overlay alongside the live system.
+    could be" overlay alongside the live mode.
     """
 
     bodies: list[Body[PoseT]]
@@ -41,11 +41,15 @@ class GhostBodies(Overlay[PoseT], Generic[PoseT]):
 
 @dataclass(frozen=True)
 class PointMarker2D(Overlay[SE2]):
-    """A 2D world-point marker (star, circle, ...) drawn over the system.
+    """A 2D world-point marker (star, circle, ...) drawn over the mode.
 
     Useful for visualizing target positions, waypoints, or any single point
     of interest. Currently requires a renderer that exposes a matplotlib
     ``ax`` attribute (i.e. ``MatplotlibRenderer2D``).
+
+    When ``filled`` is False, only the marker's outline is drawn (in
+    ``color``); useful for marking a position without occluding whatever is
+    underneath.
     """
 
     x: float
@@ -54,6 +58,7 @@ class PointMarker2D(Overlay[SE2]):
     color: str = "tab:orange"
     size: float = 200.0
     edgecolor: str = "black"
+    filled: bool = True
 
     def draw(self, renderer: Renderer[SE2]) -> None:
         ax = getattr(renderer, "ax", None)
@@ -62,12 +67,24 @@ class PointMarker2D(Overlay[SE2]):
                 "PointMarker2D requires a renderer with an ``ax`` attribute; "
                 f"got {type(renderer).__name__}"
             )
-        ax.scatter(
-            [self.x],
-            [self.y],
-            marker=self.marker,
-            c=self.color,
-            s=self.size,
-            edgecolors=self.edgecolor,
-            zorder=10,
-        )
+        if self.filled:
+            ax.scatter(
+                [self.x],
+                [self.y],
+                marker=self.marker,
+                c=self.color,
+                s=self.size,
+                edgecolors=self.edgecolor,
+                zorder=10,
+            )
+        else:
+            ax.scatter(
+                [self.x],
+                [self.y],
+                marker=self.marker,
+                facecolors="none",
+                edgecolors=self.color,
+                s=self.size,
+                linewidths=2.0,
+                zorder=10,
+            )

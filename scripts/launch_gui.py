@@ -1,4 +1,4 @@
-"""Launch the matplotlib 2D parameter GUI for a named example system.
+"""Launch the matplotlib 2D parameter GUI for a named example mode.
 
 Usage:
     python scripts/launch_gui.py <example_name>
@@ -100,14 +100,14 @@ def main() -> None:
         )
 
     instance = _example_class(args.example)()
-    sample_pose = instance.system.body_poses[instance.system.bodies[0]]
+    sample_pose = instance.mode.body_poses[instance.mode.bodies[0]]
     if not isinstance(sample_pose, SE2):
         raise SystemExit(
             f"{args.example!r} declared 2D by name but its body poses are "
             f"{type(sample_pose).__name__}; cannot launch the 2D GUI."
         )
 
-    gui = MatplotlibGUI2D(instance.system)
+    gui = MatplotlibGUI2D(instance.mode)
     gui.show()
 
 

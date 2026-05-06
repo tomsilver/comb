@@ -22,20 +22,20 @@ from comb.bodies import (
 from comb.examples.single_revolute_2d import (
     SingleRevolute2D,
 )
+from comb.mode import Mode
 from comb.rendering.matplotlib_2d import (
     MatplotlibRenderer2D,
 )
-from comb.system import System
 
 
 def test_render_draws_one_polygon_per_body():
-    """Rendering a system adds one Polygon patch to the axes per body."""
+    """Rendering a mode adds one Polygon patch to the axes per body."""
     ex = SingleRevolute2D()
     fig, ax = pyplot.subplots()
     renderer = MatplotlibRenderer2D(ax=ax)
-    renderer.render(ex.system)
+    renderer.render(ex.mode)
     polygons = [p for p in ax.patches if isinstance(p, patches.Polygon)]
-    assert len(polygons) == len(ex.system.bodies)
+    assert len(polygons) == len(ex.mode.bodies)
     pyplot.close(fig)
 
 
@@ -44,10 +44,10 @@ def test_render_clears_previous_state():
     ex = SingleRevolute2D()
     fig, ax = pyplot.subplots()
     renderer = MatplotlibRenderer2D(ax=ax)
-    renderer.render(ex.system)
-    renderer.render(ex.system)
+    renderer.render(ex.mode)
+    renderer.render(ex.mode)
     polygons = [p for p in ax.patches if isinstance(p, patches.Polygon)]
-    assert len(polygons) == len(ex.system.bodies)
+    assert len(polygons) == len(ex.mode.bodies)
     pyplot.close(fig)
 
 
@@ -56,7 +56,7 @@ def test_render_distinguishes_anchored_bodies():
     ex = SingleRevolute2D()
     fig, ax = pyplot.subplots()
     renderer = MatplotlibRenderer2D(ax=ax)
-    renderer.render(ex.system)
+    renderer.render(ex.mode)
     colors = {p.get_facecolor() for p in ax.patches if isinstance(p, patches.Polygon)}
     assert len(colors) == 2
     pyplot.close(fig)
@@ -75,12 +75,12 @@ def test_render_limits_are_stable_across_calls():
     ex = SingleRevolute2D()
     fig, ax = pyplot.subplots()
     renderer = MatplotlibRenderer2D(ax=ax)
-    renderer.render(ex.system)
+    renderer.render(ex.mode)
     xlim_first = ax.get_xlim()
     ylim_first = ax.get_ylim()
     # Mutate the link's pose to simulate a slider change.
-    ex.system.body_poses[ex.link] = SE2(0.0, 0.0, np.pi / 2)
-    renderer.render(ex.system)
+    ex.mode.body_poses[ex.link] = SE2(0.0, 0.0, np.pi / 2)
+    renderer.render(ex.mode)
     assert ax.get_xlim() == xlim_first
     assert ax.get_ylim() == ylim_first
     pyplot.close(fig)
@@ -91,7 +91,7 @@ def test_render_respects_explicit_limits():
     ex = SingleRevolute2D()
     fig, ax = pyplot.subplots()
     renderer = MatplotlibRenderer2D(ax=ax, xlim=(-5.0, 5.0), ylim=(-3.0, 3.0))
-    renderer.render(ex.system)
+    renderer.render(ex.mode)
     np.testing.assert_allclose(ax.get_xlim(), (-5.0, 5.0))
     np.testing.assert_allclose(ax.get_ylim(), (-3.0, 3.0))
     pyplot.close(fig)
@@ -105,10 +105,10 @@ def test_rectangle_is_translated_and_rotated():
         visual_geometry=Rectangle(0.4, 0.2),
         collision_geometry=Rectangle(0.4, 0.2),
     )
-    system: System[SE2] = System(bodies=[body], constraints=[], anchored_bodies=[body])
+    mode: Mode[SE2] = Mode(bodies=[body], constraints=[], anchored_bodies=[body])
     fig, ax = pyplot.subplots()
     renderer = MatplotlibRenderer2D(ax=ax)
-    renderer.render(system)
+    renderer.render(mode)
     polygon = next(p for p in ax.patches if isinstance(p, patches.Polygon))
     centroid = polygon.get_xy()[:-1].mean(axis=0)  # last vertex repeats the first
     np.testing.assert_allclose(centroid, [1.0, 2.0], atol=1e-9)

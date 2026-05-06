@@ -1,5 +1,5 @@
 """Parameterized constraints between bodies, plus a Configuration holding the
-current values of all mutable parameters in a kinematic system.
+current values of all mutable parameters in a kinematic mode.
 
 A ``Constraint`` describes the *structure* of a relationship between two bodies
 (which type, which bodies, what fixed properties). It is immutable. The current
@@ -112,7 +112,7 @@ class Constraint(abc.ABC, Generic[PoseT]):
     ) -> np.ndarray:
         """Residual vector that is zero when the constraint is satisfied.
 
-        ``body_poses`` provides the current poses for the bodies in the system.
+        ``body_poses`` provides the current poses for the bodies in the mode.
         The shape and meaning of the residual is constraint-specific.
         """
 
@@ -331,7 +331,7 @@ class RevoluteJoint3D(Joint3D):
 
 
 class Configuration:
-    """Current values of every constraint's mutable parameters in a system.
+    """Current values of every constraint's mutable parameters in a mode.
 
     Acts like a mutable mapping from ``Constraint`` to ``ConstraintParameters``,
     with validation that the names of the assigned parameters match the
