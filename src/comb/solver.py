@@ -163,4 +163,24 @@ def _build_outputs(
             config[constraint] = ConstraintParameters(
                 values=params[constraint], names=constraint.parameter_names()
             )
-    return config, BodyPoses(poses)
+    return config, BodyPoses({b: _sanitize_pose(p) for b, p in poses.items()})
+
+
+def _sanitize_pose(pose: Any) -> Any:
+    """Project a pose back onto SE(2)/SE(3) to remove accumulated float drift.
+
+    Without this, repeated calls to solve() would let body pose matrices slowly
+    drift off the manifold, eventually triggering spatialmath's validity checks
+    inside Twist2/Twist3 conversion.
+    """
+    if isinstance(pose, SE2):
+        return SE2(float(pose.t[0]), float(pose.t[1]), float(pose.theta()))
+    if isinstance(pose, SE3):
+        # Re-orthonormalize the rotation block via SVD.
+        u, _, vt = np.linalg.svd(pose.R)
+        rot = u @ vt
+        if np.linalg.det(rot) < 0:
+            u[:, -1] *= -1
+            rot = u @ vt
+        return SE3.Rt(rot, np.asarray(pose.t))
+    return pose

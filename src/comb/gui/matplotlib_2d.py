@@ -44,10 +44,7 @@ class MatplotlibGUI2D:
         slider_specs: list[tuple[Constraint[SE2], int, str, float]] = []
         for constraint in system.constraints:
             for i, name in enumerate(constraint.parameter_names()):
-                label = (
-                    f"{type(constraint).__name__}"
-                    f"({constraint.body1.name}→{constraint.body2.name}).{name}"
-                )
+                label = f"{constraint.body1.name}→{constraint.body2.name}.{name}"
                 init = float(system.configuration[constraint].values[i])
                 slider_specs.append((constraint, i, label, init))
 
@@ -66,9 +63,9 @@ class MatplotlibGUI2D:
         for i, (constraint, idx, label, init) in enumerate(slider_specs):
             slider_ax = self.figure.add_axes(
                 (
-                    0.25,
+                    0.35,
                     bottom_pad + i * (slider_height + slider_spacing),
-                    0.6,
+                    0.5,
                     slider_height,
                 )
             )

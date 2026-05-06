@@ -200,6 +200,38 @@ def test_solve_requires_anchored_body():
         solve(system)
 
 
+def test_solve_does_not_drift_over_many_calls():
+    """Repeated solve+apply cycles must not let body poses drift off SE(2)/SE(3).
+
+    Regression test for an issue where many slider adjustments in the GUI would
+    eventually push body pose matrices off the manifold, triggering spatialmath validity
+    checks inside Twist2/Twist3.
+    """
+    a = _body_3d("a")
+    b = _body_3d("b")
+    joint = _z_revolute(a, b)
+    config = Configuration(
+        {joint: ConstraintParameters(values=np.array([0.0]), names=("angle",))}
+    )
+    system: System[SE3] = System(
+        bodies=[a, b],
+        constraints=[joint],
+        configuration=config,
+        anchored_bodies=[a],
+    )
+    for _ in range(500):
+        new_config, new_poses = solve(system, delta={joint: np.array([0.013])})
+        for c in system.constraints:
+            if c.parameter_names():
+                system.configuration[c] = new_config[c]
+        for body in system.bodies:
+            system.body_poses[body] = new_poses[body]
+    # If we got here without spatialmath complaining, we're good. As a sanity
+    # check, the rotation block should still be orthonormal.
+    rot = system.body_poses[b].R
+    np.testing.assert_allclose(rot @ rot.T, np.eye(3), atol=1e-12)
+
+
 def test_solve_loop_reduces_residual():
     """For an over-constrained loop, solve cannot zero the residual but reduces it."""
     a = _body_3d("a")
