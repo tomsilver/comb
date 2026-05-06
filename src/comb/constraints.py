@@ -5,15 +5,24 @@ A ``Constraint`` describes the *structure* of a relationship between two bodies
 (which type, which bodies, what fixed properties). It is immutable. The current
 values of any mutable parameters live in a separate ``Configuration`` keyed by
 constraint instance.
+
+``Constraint.constraint_function`` is fully generic: it returns an arbitrary
+residual vector that is zero when the constraint is satisfied. Joint-type
+constraints (relating two body poses by a relative transform) inherit from
+``Joint2D`` or ``Joint3D``, which derive ``constraint_function`` from a
+subclass-defined ``relative_transform``. Other custom constraints can implement
+``constraint_function`` directly.
 """
 
 import abc
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from typing import Generic
 
 import numpy as np
+from spatialmath import SE2, SE3, Twist2, Twist3, UnitQuaternion
 
-from comb.bodies import Body
+from comb.bodies import Body, PoseT
 
 
 @dataclass(frozen=True)
@@ -43,11 +52,11 @@ class ConstraintParameters:
 # Constraint uses identity-based equality and hashing so that distinct instances
 # can serve as Configuration keys even when fields contain numpy arrays.
 @dataclass(frozen=True, eq=False)
-class Constraint(abc.ABC):
-    """A parameterized constraint relating two bodies (immutable structure)."""
+class Constraint(abc.ABC, Generic[PoseT]):
+    """A parameterized constraint relating two bodies that share a pose type."""
 
-    body1: Body
-    body2: Body
+    body1: Body[PoseT]
+    body2: Body[PoseT]
     fixed_parameters: ConstraintParameters
 
     def __post_init__(self) -> None:
@@ -68,9 +77,75 @@ class Constraint(abc.ABC):
     def parameter_names(cls) -> tuple[str, ...]:
         """Names of the mutable configuration parameters this constraint expects."""
 
+    @abc.abstractmethod
+    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+        """Residual vector that is zero when the constraint is satisfied.
+
+        The shape and meaning of the residual is constraint-specific.
+        """
+
 
 @dataclass(frozen=True, eq=False)
-class FixedConstraint(Constraint):
+class Joint2D(Constraint[SE2]):
+    """A joint between two SE(2) bodies, defined by a relative SE(2) transform."""
+
+    @abc.abstractmethod
+    def relative_transform(self, parameters: ConstraintParameters) -> SE2:
+        """Transform from body1's frame to body2's frame implied by ``parameters``.
+
+        The constraint imposes
+        ``body2.pose == body1.pose * relative_transform(parameters)``.
+        """
+
+    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+        """SE(2) twist of the pose error (3-vector, zero when satisfied)."""
+        expected = self.relative_transform(parameters)
+        actual = self.body1.pose.inv() * self.body2.pose
+        error = expected.inv() * actual
+        return np.asarray(Twist2(error).A, dtype=float)
+
+
+@dataclass(frozen=True, eq=False)
+class Joint3D(Constraint[SE3]):
+    """A joint between two SE(3) bodies, defined by a relative SE(3) transform."""
+
+    @abc.abstractmethod
+    def relative_transform(self, parameters: ConstraintParameters) -> SE3:
+        """Transform from body1's frame to body2's frame implied by ``parameters``.
+
+        The constraint imposes
+        ``body2.pose == body1.pose * relative_transform(parameters)``.
+        """
+
+    def constraint_function(self, parameters: ConstraintParameters) -> np.ndarray:
+        """SE(3) twist of the pose error (6-vector, zero when satisfied)."""
+        expected = self.relative_transform(parameters)
+        actual = self.body1.pose.inv() * self.body2.pose
+        error = expected.inv() * actual
+        return np.asarray(Twist3(error).A, dtype=float)
+
+
+@dataclass(frozen=True, eq=False)
+class FixedJoint2D(Joint2D):
+    """A fixed SE(2) rigid-body transform from body1's frame to body2's frame."""
+
+    @classmethod
+    def fixed_parameter_names(cls) -> tuple[str, ...]:
+        return ("tx", "ty", "theta")
+
+    @classmethod
+    def parameter_names(cls) -> tuple[str, ...]:
+        return ()
+
+    def relative_transform(  # pylint: disable=unused-argument
+        self, parameters: ConstraintParameters
+    ) -> SE2:
+        fp = self.fixed_parameters
+        return SE2(fp["tx"], fp["ty"], fp["theta"])
+
+
+@dataclass(frozen=True, eq=False)
+class FixedJoint3D(Joint3D):
     """A fixed SE(3) rigid-body transform from body1's frame to body2's frame."""
 
     @classmethod
@@ -81,9 +156,38 @@ class FixedConstraint(Constraint):
     def parameter_names(cls) -> tuple[str, ...]:
         return ()
 
+    def relative_transform(  # pylint: disable=unused-argument
+        self, parameters: ConstraintParameters
+    ) -> SE3:
+        fp = self.fixed_parameters
+        # spatialmath UnitQuaternion is scalar-first; our names follow xyzw.
+        rotation = UnitQuaternion([fp["qw"], fp["qx"], fp["qy"], fp["qz"]])
+        return SE3.Rt(rotation.R, t=[fp["tx"], fp["ty"], fp["tz"]])
+
 
 @dataclass(frozen=True, eq=False)
-class RevoluteJoint(Constraint):
+class RevoluteJoint2D(Joint2D):
+    """A 2D revolute joint with origin fixed in body1's frame.
+
+    The rotation axis is implicit (out of the plane). The mutable parameter is
+    the joint angle in radians.
+    """
+
+    @classmethod
+    def fixed_parameter_names(cls) -> tuple[str, ...]:
+        return ("origin_x", "origin_y")
+
+    @classmethod
+    def parameter_names(cls) -> tuple[str, ...]:
+        return ("angle",)
+
+    def relative_transform(self, parameters: ConstraintParameters) -> SE2:
+        fp = self.fixed_parameters
+        return SE2(fp["origin_x"], fp["origin_y"], parameters["angle"])
+
+
+@dataclass(frozen=True, eq=False)
+class RevoluteJoint3D(Joint3D):
     """A revolute joint with axis and origin fixed in body1's frame.
 
     The mutable parameter is the joint angle in radians.
@@ -104,41 +208,11 @@ class RevoluteJoint(Constraint):
     def parameter_names(cls) -> tuple[str, ...]:
         return ("angle",)
 
-
-@dataclass(frozen=True, eq=False)
-class PrismaticJoint(Constraint):
-    """A prismatic joint with axis and origin fixed in body1's frame.
-
-    The mutable parameter is the linear offset along the axis.
-    """
-
-    @classmethod
-    def fixed_parameter_names(cls) -> tuple[str, ...]:
-        return (
-            "axis_x",
-            "axis_y",
-            "axis_z",
-            "origin_x",
-            "origin_y",
-            "origin_z",
-        )
-
-    @classmethod
-    def parameter_names(cls) -> tuple[str, ...]:
-        return ("offset",)
-
-
-@dataclass(frozen=True, eq=False)
-class PlanarJoint(Constraint):
-    """A 3-DOF planar joint, e.g. a robot base on a floor (x, y, theta)."""
-
-    @classmethod
-    def fixed_parameter_names(cls) -> tuple[str, ...]:
-        return ()
-
-    @classmethod
-    def parameter_names(cls) -> tuple[str, ...]:
-        return ("x", "y", "theta")
+    def relative_transform(self, parameters: ConstraintParameters) -> SE3:
+        fp = self.fixed_parameters
+        origin = [fp["origin_x"], fp["origin_y"], fp["origin_z"]]
+        axis = [fp["axis_x"], fp["axis_y"], fp["axis_z"]]
+        return SE3.Trans(origin) * SE3.AngVec(parameters["angle"], axis)
 
 
 class Configuration:

@@ -1,31 +1,32 @@
-"""Bodies: pose type, geometry primitives, and the Body dataclass."""
+"""Bodies: pose type, geometry primitives, and the Body dataclass.
+
+``Body`` and ``Geometry`` are both generic in the pose type, so a ``Body[SE3]``
+must carry ``Geometry[SE3]`` (e.g. ``Box``) and a ``Body[SE2]`` must carry
+``Geometry[SE2]`` (e.g. ``Rectangle``). Constraints (see ``comb.constraints``)
+inherit the same parameterization.
+"""
 
 import abc
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import Generic, TypeAlias, TypeVar
 
 import numpy as np
 from spatialmath import SE2, SE3
 
-# A pose lives in some configuration space. SE2/SE3 cover planar and 3D rigid
-# bodies; np.ndarray covers translation-only spaces like R^1, R^2, R^3.
+# Conventional pose types. Body, Geometry, and Constraint are generic in PoseT,
+# so any type can be used in principle; this alias names the common cases.
 Pose: TypeAlias = SE2 | SE3 | np.ndarray
 
-
-class Geometry(abc.ABC):
-    """Visual or collision geometry. Concrete subclasses are primitives or meshes."""
+PoseT = TypeVar("PoseT")
 
 
-@dataclass(frozen=True)
-class Sphere(Geometry):
-    """A sphere with the given radius."""
-
-    radius: float
+class Geometry(abc.ABC, Generic[PoseT]):
+    """Visual or collision geometry, tagged by the pose space it lives in."""
 
 
 @dataclass(frozen=True)
-class Box(Geometry):
-    """An axis-aligned box with the given extents along x, y, and z."""
+class Box(Geometry[SE3]):
+    """A 3D axis-aligned box with the given extents along x, y, and z."""
 
     size_x: float
     size_y: float
@@ -33,26 +34,18 @@ class Box(Geometry):
 
 
 @dataclass(frozen=True)
-class Cylinder(Geometry):
-    """A cylinder with the given radius and height (along the local z-axis)."""
+class Rectangle(Geometry[SE2]):
+    """A 2D axis-aligned rectangle with the given extents along x and y."""
 
-    radius: float
-    height: float
-
-
-@dataclass(frozen=True)
-class Mesh(Geometry):
-    """A triangle mesh: vertices of shape (V, 3) and integer faces of shape (F, 3)."""
-
-    vertices: np.ndarray
-    faces: np.ndarray
+    size_x: float
+    size_y: float
 
 
 @dataclass(frozen=True)
-class Body:
+class Body(Generic[PoseT]):
     """A named rigid body with a pose plus visual and collision geometry."""
 
     name: str
-    pose: Pose
-    visual_geometry: Geometry
-    collision_geometry: Geometry
+    pose: PoseT
+    visual_geometry: Geometry[PoseT]
+    collision_geometry: Geometry[PoseT]
