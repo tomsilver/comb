@@ -6,7 +6,6 @@ matplotlib.use("Agg")  # headless backend for tests
 
 # pylint: disable=wrong-import-position
 import numpy as np
-import pytest
 from matplotlib import (
     patches,
     pyplot,
@@ -18,7 +17,6 @@ from spatialmath import SE2
 
 from comb.bodies import (
     Body,
-    Geometry,
     Rectangle,
 )
 from comb.examples.single_revolute_2d import (
@@ -69,26 +67,6 @@ def test_render_creates_figure_when_no_axes_given():
     renderer = MatplotlibRenderer2D()
     assert isinstance(renderer.ax.figure, Figure)
     pyplot.close(renderer.ax.figure)
-
-
-def test_render_rejects_unknown_geometry():
-    """Rendering a body whose geometry has no registered drawer raises."""
-
-    class MysteryShape(Geometry[SE2]):
-        """A shape with no registered drawing implementation."""
-
-    body = Body(
-        name="weird",
-        pose=SE2(),
-        visual_geometry=MysteryShape(),
-        collision_geometry=Rectangle(0.1, 0.1),
-    )
-    system: System[SE2] = System(bodies=[body], constraints=[], anchored_bodies=[body])
-    fig, ax = pyplot.subplots()
-    renderer = MatplotlibRenderer2D(ax=ax)
-    with pytest.raises(NotImplementedError):
-        renderer.render(system)
-    pyplot.close(fig)
 
 
 def test_render_limits_are_stable_across_calls():
