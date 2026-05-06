@@ -16,6 +16,7 @@ from comb.constraints import (
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
 from comb.examples.two_link_arm_with_object_2d import TwoLinkArmWithObject2D
 from comb.mode import Mode, ModeState
+from comb.planners import PlanningError
 from comb.planners.stepping import SteppingPlanner
 from comb.solver import solve
 from comb.system import System
@@ -183,7 +184,7 @@ def test_plan_raises_when_max_substeps_exceeded():
     mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 3, bc=-math.pi / 4)
     planner = SteppingPlanner(interval=1e-3, max_substeps=5)
-    with pytest.raises(RuntimeError, match="no plan"):
+    with pytest.raises(PlanningError, match="no plan"):
         planner.plan(System(mode=mode), [_pin(world, arm.link_b, goal)], horizon=1.0)
 
 
@@ -193,7 +194,7 @@ def test_plan_raises_when_goal_unreachable():
     mode, world = _arm_with_world(arm)
     # Two-link arm has reach <= 2.0; pose at (10, 0) is unreachable.
     final = [_pin(world, arm.link_b, SE2(10.0, 0.0, 0.0))]
-    with pytest.raises(RuntimeError, match="no plan"):
+    with pytest.raises(PlanningError, match="no plan"):
         SteppingPlanner(interval=0.1).plan(System(mode=mode), final, horizon=1.0)
 
 

@@ -4,6 +4,10 @@ Each planner is a strategy class with a shared ``plan`` interface but its own
 hyperparameters as constructor arguments. Strategies search over sequences of
 modes (via the ``system.transitions``) and emit ``Trajectory[ModeState[PoseT]]``
 so callers swap planners without rewriting the call site.
+
+Planners raise :class:`PlanningError` when they can't find a plan; concrete
+strategies may use specific subclasses internally for control flow but
+``PlanningError`` is the catch-all for end users.
 """
 
 import abc
@@ -14,6 +18,10 @@ from comb.constraints import Constraint
 from comb.mode import ModeState
 from comb.system import System
 from comb.trajectories import Trajectory
+
+
+class PlanningError(Exception):
+    """Raised when a planner cannot find a trajectory satisfying the goal."""
 
 
 class Planner(abc.ABC):
