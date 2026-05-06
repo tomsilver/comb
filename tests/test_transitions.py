@@ -17,7 +17,7 @@ from comb.constraints import (
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
 from comb.mode import Mode, ModeState
 from comb.solver import solve
-from comb.transitions import ConstraintTransition, attach_rigidly_2d
+from comb.transitions import ConstraintTransition, RigidAttachment2D
 
 
 def _world_body() -> Body[SE2]:
@@ -229,7 +229,7 @@ def test_canonical_rigid_attachment_to_end_effector():
             names=PointEquality2D.fixed_parameter_names(),
         ),
     )
-    transition = attach_rigidly_2d(arm.link_b, obj, trigger=trigger, tolerance=0.05)
+    transition = RigidAttachment2D(arm.link_b, obj, trigger=trigger, tolerance=0.05)
     assert transition.is_enabled(mode.snapshot())
 
     attached_mode = transition.apply(mode, mode.snapshot())

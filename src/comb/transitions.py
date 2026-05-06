@@ -131,48 +131,50 @@ class ConstraintTransition(Generic[PoseT]):
         )
 
 
-def attach_rigidly_2d(
-    body1: Body[SE2],
-    body2: Body[SE2],
-    *,
-    trigger: Constraint[SE2],
-    tolerance: float,
-    detach_from: Iterable[Constraint[SE2]] = (),
-) -> ConstraintTransition[SE2]:
-    """Build a ``ConstraintTransition`` that rigidly attaches ``body2`` to ``body1``.
+class RigidAttachment2D(ConstraintTransition[SE2]):
+    """A ``ConstraintTransition`` that rigidly attaches ``body2`` to ``body1``.
 
-    When ``trigger``'s residual norm falls below ``tolerance``, applying the
-    returned transition captures the *current* relative transform between the
-    two bodies and adds a ``FixedJoint2D`` enforcing it — so ``body2`` stays
-    at its current pose-relative-to-``body1`` from then on.
+    When ``trigger``'s residual norm falls below ``tolerance``, applying this
+    transition captures the *current* relative transform between the two bodies
+    and adds a ``FixedJoint2D`` enforcing it — so ``body2`` stays at its
+    current pose-relative-to-``body1`` from then on.
 
     ``detach_from`` is a list of constraints that should be removed at the
     moment of attachment (e.g. a world-to-body pin that previously held the
     body in place).
     """
 
-    def add(state: ModeState[SE2]) -> list[Constraint[SE2]]:
-        rel = state.body_poses[body1].inv() * state.body_poses[body2]
-        return [
-            FixedJoint2D(
-                body1=body1,
-                body2=body2,
-                fixed_parameters=ConstraintParameters(
-                    values=np.array(
-                        [
-                            float(rel.t[0]),
-                            float(rel.t[1]),
-                            float(rel.theta()),
-                        ]
+    def __init__(
+        self,
+        body1: Body[SE2],
+        body2: Body[SE2],
+        *,
+        trigger: Constraint[SE2],
+        tolerance: float,
+        detach_from: Iterable[Constraint[SE2]] = (),
+    ) -> None:
+        def add(state: ModeState[SE2]) -> list[Constraint[SE2]]:
+            rel = state.body_poses[body1].inv() * state.body_poses[body2]
+            return [
+                FixedJoint2D(
+                    body1=body1,
+                    body2=body2,
+                    fixed_parameters=ConstraintParameters(
+                        values=np.array(
+                            [
+                                float(rel.t[0]),
+                                float(rel.t[1]),
+                                float(rel.theta()),
+                            ]
+                        ),
+                        names=FixedJoint2D.fixed_parameter_names(),
                     ),
-                    names=FixedJoint2D.fixed_parameter_names(),
-                ),
-            )
-        ]
+                )
+            ]
 
-    return ConstraintTransition(
-        trigger=trigger,
-        tolerance=tolerance,
-        add=add,
-        remove=tuple(detach_from),
-    )
+        super().__init__(
+            trigger=trigger,
+            tolerance=tolerance,
+            add=add,
+            remove=tuple(detach_from),
+        )
