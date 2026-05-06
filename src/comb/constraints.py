@@ -5,15 +5,21 @@ A ``Constraint`` describes the *structure* of a relationship between two bodies
 (which type, which bodies, what fixed properties). It is immutable. The current
 values of any mutable parameters live in a separate ``Configuration`` keyed by
 constraint instance.
+
+``Constraint`` is generic in the pose type of its bodies, so e.g.
+``RevoluteJoint3D`` is a ``Constraint[SE3]`` and only relates ``Body[SE3]``
+instances.
 """
 
 import abc
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from typing import Generic
 
 import numpy as np
+from spatialmath import SE2, SE3
 
-from comb.bodies import Body
+from comb.bodies import Body, PoseT
 
 
 @dataclass(frozen=True)
@@ -43,11 +49,11 @@ class ConstraintParameters:
 # Constraint uses identity-based equality and hashing so that distinct instances
 # can serve as Configuration keys even when fields contain numpy arrays.
 @dataclass(frozen=True, eq=False)
-class Constraint(abc.ABC):
-    """A parameterized constraint relating two bodies (immutable structure)."""
+class Constraint(abc.ABC, Generic[PoseT]):
+    """A parameterized constraint relating two bodies that share a pose type."""
 
-    body1: Body
-    body2: Body
+    body1: Body[PoseT]
+    body2: Body[PoseT]
     fixed_parameters: ConstraintParameters
 
     def __post_init__(self) -> None:
@@ -70,7 +76,20 @@ class Constraint(abc.ABC):
 
 
 @dataclass(frozen=True, eq=False)
-class FixedConstraint(Constraint):
+class FixedJoint2D(Constraint[SE2]):
+    """A fixed SE(2) rigid-body transform from body1's frame to body2's frame."""
+
+    @classmethod
+    def fixed_parameter_names(cls) -> tuple[str, ...]:
+        return ("tx", "ty", "theta")
+
+    @classmethod
+    def parameter_names(cls) -> tuple[str, ...]:
+        return ()
+
+
+@dataclass(frozen=True, eq=False)
+class FixedJoint3D(Constraint[SE3]):
     """A fixed SE(3) rigid-body transform from body1's frame to body2's frame."""
 
     @classmethod
@@ -83,7 +102,24 @@ class FixedConstraint(Constraint):
 
 
 @dataclass(frozen=True, eq=False)
-class RevoluteJoint(Constraint):
+class RevoluteJoint2D(Constraint[SE2]):
+    """A 2D revolute joint with origin fixed in body1's frame.
+
+    The rotation axis is implicit (out of the plane). The mutable parameter is
+    the joint angle in radians.
+    """
+
+    @classmethod
+    def fixed_parameter_names(cls) -> tuple[str, ...]:
+        return ("origin_x", "origin_y")
+
+    @classmethod
+    def parameter_names(cls) -> tuple[str, ...]:
+        return ("angle",)
+
+
+@dataclass(frozen=True, eq=False)
+class RevoluteJoint3D(Constraint[SE3]):
     """A revolute joint with axis and origin fixed in body1's frame.
 
     The mutable parameter is the joint angle in radians.
@@ -103,42 +139,6 @@ class RevoluteJoint(Constraint):
     @classmethod
     def parameter_names(cls) -> tuple[str, ...]:
         return ("angle",)
-
-
-@dataclass(frozen=True, eq=False)
-class PrismaticJoint(Constraint):
-    """A prismatic joint with axis and origin fixed in body1's frame.
-
-    The mutable parameter is the linear offset along the axis.
-    """
-
-    @classmethod
-    def fixed_parameter_names(cls) -> tuple[str, ...]:
-        return (
-            "axis_x",
-            "axis_y",
-            "axis_z",
-            "origin_x",
-            "origin_y",
-            "origin_z",
-        )
-
-    @classmethod
-    def parameter_names(cls) -> tuple[str, ...]:
-        return ("offset",)
-
-
-@dataclass(frozen=True, eq=False)
-class PlanarJoint(Constraint):
-    """A 3-DOF planar joint, e.g. a robot base on a floor (x, y, theta)."""
-
-    @classmethod
-    def fixed_parameter_names(cls) -> tuple[str, ...]:
-        return ()
-
-    @classmethod
-    def parameter_names(cls) -> tuple[str, ...]:
-        return ("x", "y", "theta")
 
 
 class Configuration:
