@@ -60,13 +60,13 @@ def _reachable_link_b_pose(arm: TwoLinkArm2D, ab: float, bc: float) -> SE2:
     The 2-link arm is 2-DoF, so a full SE(2) goal pose is generally over-constrained.
     Constructing the goal from a known joint config guarantees reachability.
     """
-    _, poses = solve(
+    poses = solve(
         arm.mode,
         delta={
             arm.joint_ab: np.array([ab]),
             arm.joint_bc: np.array([bc]),
         },
-    )
+    ).body_poses
     return poses[arm.link_b]
 
 

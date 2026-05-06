@@ -25,7 +25,7 @@ import numpy as np
 from spatialmath import SE2, SE3, Twist2, Twist3
 
 from comb.bodies import BodyPoses, PoseT
-from comb.constraints import Configuration, Constraint
+from comb.constraints import Constraint, ConstraintConfiguration
 from comb.mode import Mode, ModeState, interpolate_mode_state
 from comb.planners import Planner
 from comb.solver import find_satisfying_state, solve
@@ -70,8 +70,7 @@ class SteppingPlanner(Planner):
         if horizon <= 0:
             raise ValueError(f"horizon must be positive, got {horizon}")
 
-        goal_cfg, goal_poses = find_satisfying_state(mode, final_constraints)
-        goal_state = ModeState(configuration=goal_cfg, body_poses=goal_poses)
+        goal_state = find_satisfying_state(mode, final_constraints)
 
         work_mode = _internal_copy(mode)
         state = work_mode.snapshot()
@@ -89,8 +88,7 @@ class SteppingPlanner(Planner):
             scale = 1.0
             while True:
                 scaled = {c: scale * d for c, d in delta.items()}
-                new_cfg, new_poses = solve(work_mode, delta=scaled)
-                new_state = ModeState(configuration=new_cfg, body_poses=new_poses)
+                new_state = solve(work_mode, delta=scaled)
                 distance = _max_pose_distance(state.body_poses, new_state.body_poses)
                 if distance <= self.interval:
                     break
@@ -101,7 +99,7 @@ class SteppingPlanner(Planner):
                         f"interval ({self.interval:g})"
                     )
                 scale /= 2
-            work_mode.apply(new_state)
+            work_mode.set_state(new_state)
             states.append(new_state)
             state = new_state
 
@@ -134,7 +132,7 @@ def _internal_copy(mode: Mode[PoseT]) -> Mode[PoseT]:
 
 
 def _delta_toward(
-    current: Configuration, target: Configuration
+    current: ConstraintConfiguration, target: ConstraintConfiguration
 ) -> dict[Constraint, np.ndarray]:
     delta: dict[Constraint, np.ndarray] = {}
     for constraint in target:
@@ -152,7 +150,9 @@ def _delta_toward(
     return delta
 
 
-def _at_target(current: Configuration, target: Configuration, tolerance: float) -> bool:
+def _at_target(
+    current: ConstraintConfiguration, target: ConstraintConfiguration, tolerance: float
+) -> bool:
     for constraint in target:
         if constraint not in current:
             continue

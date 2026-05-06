@@ -91,19 +91,19 @@ def _plan_through(
         segments.append(segment)
         end_state = segment(segment.duration)
         goal_states.append(end_state)
-        mode.apply(end_state)
+        mode.set_state(end_state)
     return concatenate(segments), goal_states
 
 
 def _reachable_link_b_pose(arm: TwoLinkArm2D, ab: float, bc: float) -> SE2:
     """End-effector pose reachable at the given joint angles (constructed via solve)."""
-    _, poses = solve(
+    poses = solve(
         arm.mode,
         delta={
             arm.joint_ab: np.array([ab]),
             arm.joint_bc: np.array([bc]),
         },
-    )
+    ).body_poses
     return poses[arm.link_b]
 
 

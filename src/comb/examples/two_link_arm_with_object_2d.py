@@ -22,7 +22,7 @@ from comb.constraints import ConstraintParameters, FixedJoint2D, PointEquality2D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
 from comb.mode import Mode
 from comb.system import System
-from comb.transitions import ConstraintTransition, rigid_attachment_2d
+from comb.transitions import ConstraintTransition, RigidAttachment2D
 
 
 class TwoLinkArmWithObject2D:
@@ -86,11 +86,12 @@ class TwoLinkArmWithObject2D:
                 names=PointEquality2D.fixed_parameter_names(),
             ),
         )
-        self.pickup_transition: ConstraintTransition[SE2] = ConstraintTransition(
+        self.pickup_transition: ConstraintTransition[SE2] = RigidAttachment2D(
+            self.arm.link_b,
+            self.block,
             trigger=self.pickup_trigger,
             tolerance=pickup_tolerance,
-            add=rigid_attachment_2d(self.arm.link_b, self.block),
-            remove=(self.world_to_block,),
+            detach_from=(self.world_to_block,),
         )
         self.system: System[SE2] = System(
             mode=self.mode,

@@ -1,4 +1,5 @@
-"""Tests for ModeState and interpolators of Configuration / BodyPoses / ModeState.
+"""Tests for ModeState and interpolators of ConstraintConfiguration / BodyPoses /
+ModeState.
 
 These primitives are what a future trajectory-producing solver will compose into a
 ``Trajectory[ModeState[PoseT]]``.
@@ -12,11 +13,11 @@ from spatialmath import SE2, SE3
 
 from comb.bodies import Body, BodyPoses, Box, Rectangle, interpolate_body_poses
 from comb.constraints import (
-    Configuration,
+    ConstraintConfiguration,
     ConstraintParameters,
     RevoluteJoint2D,
     RevoluteJoint3D,
-    interpolate_configuration,
+    interpolate_constraint_configuration,
 )
 from comb.mode import ModeState, interpolate_mode_state
 from comb.parameter_spaces import BoundedReal
@@ -76,15 +77,15 @@ def test_interpolate_configuration_endpoints():
         fixed_parameters=joint.fixed_parameters,
         parameter_space_overrides=(BoundedReal(-2.0, 2.0),),
     )
-    start = Configuration(
+    start = ConstraintConfiguration(
         {bounded_joint: ConstraintParameters(np.array([0.5]), ("angle",))}
     )
-    end = Configuration(
+    end = ConstraintConfiguration(
         {bounded_joint: ConstraintParameters(np.array([1.5]), ("angle",))}
     )
-    at_zero = interpolate_configuration(start, end, 0.0)
-    at_one = interpolate_configuration(start, end, 1.0)
-    at_half = interpolate_configuration(start, end, 0.5)
+    at_zero = interpolate_constraint_configuration(start, end, 0.0)
+    at_one = interpolate_constraint_configuration(start, end, 1.0)
+    at_half = interpolate_constraint_configuration(start, end, 0.5)
     assert at_zero[bounded_joint]["angle"] == pytest.approx(0.5)
     assert at_one[bounded_joint]["angle"] == pytest.approx(1.5)
     assert at_half[bounded_joint]["angle"] == pytest.approx(1.0)
@@ -96,9 +97,13 @@ def test_interpolate_configuration_takes_short_way_on_circle():
     a, b = _body_3d("a"), _body_3d("b")
     joint = _revolute_3d(a, b)
     # 3.0 -> -3.0 the short way crosses ±π, not 0.
-    start = Configuration({joint: ConstraintParameters(np.array([3.0]), ("angle",))})
-    end = Configuration({joint: ConstraintParameters(np.array([-3.0]), ("angle",))})
-    mid = interpolate_configuration(start, end, 0.5)
+    start = ConstraintConfiguration(
+        {joint: ConstraintParameters(np.array([3.0]), ("angle",))}
+    )
+    end = ConstraintConfiguration(
+        {joint: ConstraintParameters(np.array([-3.0]), ("angle",))}
+    )
+    mid = interpolate_constraint_configuration(start, end, 0.5)
     angle = mid[joint]["angle"]
     # Short way midpoint is ±π (Circle.retract canonicalizes -π to +π).
     assert abs(abs(angle) - math.pi) < 1e-9
@@ -116,9 +121,13 @@ def test_interpolate_configuration_clamps_on_bounded_real():
         ),
         parameter_space_overrides=(BoundedReal(0.0, 1.0),),
     )
-    start = Configuration({joint: ConstraintParameters(np.array([0.0]), ("angle",))})
-    end = Configuration({joint: ConstraintParameters(np.array([1.0]), ("angle",))})
-    over = interpolate_configuration(start, end, 1.5)
+    start = ConstraintConfiguration(
+        {joint: ConstraintParameters(np.array([0.0]), ("angle",))}
+    )
+    end = ConstraintConfiguration(
+        {joint: ConstraintParameters(np.array([1.0]), ("angle",))}
+    )
+    over = interpolate_constraint_configuration(start, end, 1.5)
     assert over[joint]["angle"] == pytest.approx(1.0)
 
 
@@ -127,10 +136,14 @@ def test_interpolate_configuration_rejects_mismatched_constraint_sets():
     a, b, c = _body_3d("a"), _body_3d("b"), _body_3d("c")
     j1 = _revolute_3d(a, b)
     j2 = _revolute_3d(b, c)
-    start = Configuration({j1: ConstraintParameters(np.array([0.0]), ("angle",))})
-    end = Configuration({j2: ConstraintParameters(np.array([0.0]), ("angle",))})
+    start = ConstraintConfiguration(
+        {j1: ConstraintParameters(np.array([0.0]), ("angle",))}
+    )
+    end = ConstraintConfiguration(
+        {j2: ConstraintParameters(np.array([0.0]), ("angle",))}
+    )
     with pytest.raises(ValueError, match="matching constraint sets"):
-        interpolate_configuration(start, end, 0.5)
+        interpolate_constraint_configuration(start, end, 0.5)
 
 
 def test_interpolate_body_poses_se3():
@@ -184,23 +197,27 @@ def test_mode_state_immutable_snapshot():
     """ModeState bundles configuration and body_poses as a frozen pair."""
     a, b = _body_3d("a"), _body_3d("b")
     joint = _revolute_3d(a, b)
-    config = Configuration({joint: ConstraintParameters(np.array([0.5]), ("angle",))})
+    config = ConstraintConfiguration(
+        {joint: ConstraintParameters(np.array([0.5]), ("angle",))}
+    )
     poses = BodyPoses({a: SE3(), b: SE3.Trans(1.0, 0.0, 0.0)})
     state: ModeState[SE3] = ModeState(configuration=config, body_poses=poses)
     assert state.configuration is config
     assert state.body_poses is poses
     with pytest.raises(Exception):
-        state.configuration = Configuration()  # type: ignore[misc]
+        state.configuration = ConstraintConfiguration()  # type: ignore[misc]
 
 
 def test_interpolate_mode_state_combines_pieces():
     """interpolate_mode_state interpolates configuration and body_poses together."""
     a, b = _body_2d("a"), _body_2d("b")
     joint = _revolute_2d(a, b)
-    cfg_start = Configuration(
+    cfg_start = ConstraintConfiguration(
         {joint: ConstraintParameters(np.array([0.0]), ("angle",))}
     )
-    cfg_end = Configuration({joint: ConstraintParameters(np.array([1.0]), ("angle",))})
+    cfg_end = ConstraintConfiguration(
+        {joint: ConstraintParameters(np.array([1.0]), ("angle",))}
+    )
     poses_start = BodyPoses({a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 0.0, 0.0)})
     poses_end = BodyPoses({a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 0.0, 1.0)})
     start = ModeState(configuration=cfg_start, body_poses=poses_start)
@@ -215,10 +232,12 @@ def test_mode_state_trajectory_via_linear_segment():
     """End-to-end: a Trajectory[ModeState] queries cleanly at any time."""
     a, b = _body_2d("a"), _body_2d("b")
     joint = _revolute_2d(a, b)
-    cfg_start = Configuration(
+    cfg_start = ConstraintConfiguration(
         {joint: ConstraintParameters(np.array([0.0]), ("angle",))}
     )
-    cfg_end = Configuration({joint: ConstraintParameters(np.array([1.0]), ("angle",))})
+    cfg_end = ConstraintConfiguration(
+        {joint: ConstraintParameters(np.array([1.0]), ("angle",))}
+    )
     poses_start = BodyPoses({a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 0.0, 0.0)})
     poses_end = BodyPoses({a: SE2(0.0, 0.0, 0.0), b: SE2(1.0, 0.0, 1.0)})
     traj = linear_segment(

@@ -54,7 +54,7 @@ def test_gui_widget_drives_solver_and_updates_mode():
 
     gui.widgets[0].set_val(np.pi / 2)
 
-    # Configuration was updated.
+    # ConstraintConfiguration was updated.
     assert ex.mode.configuration[ex.joint]["angle"] == pytest.approx(
         np.pi / 2, abs=1e-9
     )

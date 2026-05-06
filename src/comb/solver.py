@@ -28,8 +28,8 @@ import numpy as np
 from spatialmath import SE2, SE3
 
 from comb.bodies import Body, BodyPoses, PoseT
-from comb.constraints import Configuration, Constraint, ConstraintParameters
-from comb.mode import Mode
+from comb.constraints import Constraint, ConstraintConfiguration, ConstraintParameters
+from comb.mode import Mode, ModeState
 
 _FD_EPSILON = 1e-7
 
@@ -41,7 +41,7 @@ def solve(
     residual_tolerance: float = 1e-9,
     step_tolerance: float = 1e-12,
     max_step_norm: float = 1.0,
-) -> tuple[Configuration, BodyPoses[PoseT]]:
+) -> ModeState[PoseT]:
     """Find a close valid configuration after applying delta to driven parameters.
 
     ``delta`` maps a subset of constraints to a numpy delta vector matching
@@ -159,7 +159,7 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
     step_tolerance: float = 1e-12,
     max_step_norm: float = 1.0,
     initial_damping: float = 1e-3,
-) -> tuple[Configuration, BodyPoses[PoseT]]:
+) -> ModeState[PoseT]:
     """Find a state satisfying ``mode.constraints + extra_constraints``.
 
     Joint parameters and body poses are *both* optimization variables. Initial
@@ -306,13 +306,16 @@ def find_satisfying_state(  # pylint: disable=too-many-locals,too-many-statement
             f"augmented constraint set may be unsatisfiable from the initial state"
         )
 
-    config = Configuration()
+    config = ConstraintConfiguration()
     for c in mode.constraints:
         if c.parameter_names():
             config[c] = ConstraintParameters(
                 values=params_curr[c], names=c.parameter_names()
             )
-    return config, BodyPoses({b: _sanitize_pose(p) for b, p in body_pose_curr.items()})
+    return ModeState(
+        configuration=config,
+        body_poses=BodyPoses({b: _sanitize_pose(p) for b, p in body_pose_curr.items()}),
+    )
 
 
 def _twist_dim_and_exp(
@@ -335,14 +338,17 @@ def _build_outputs(
     mode: Mode[PoseT],
     params: dict[Constraint[PoseT], np.ndarray],
     poses: dict[Body[PoseT], Any],
-) -> tuple[Configuration, BodyPoses[PoseT]]:
-    config = Configuration()
+) -> ModeState[PoseT]:
+    config = ConstraintConfiguration()
     for constraint in mode.constraints:
         if constraint.parameter_names():
             config[constraint] = ConstraintParameters(
                 values=params[constraint], names=constraint.parameter_names()
             )
-    return config, BodyPoses({b: _sanitize_pose(p) for b, p in poses.items()})
+    return ModeState(
+        configuration=config,
+        body_poses=BodyPoses({b: _sanitize_pose(p) for b, p in poses.items()}),
+    )
 
 
 def _sanitize_pose(pose: Any) -> Any:

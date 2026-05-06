@@ -12,7 +12,6 @@ from comb.examples.single_revolute_3d import SingleRevolute3D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
 from comb.examples.two_link_arm_3d import TwoLinkArm3D
 from comb.examples.two_link_arm_with_object_2d import TwoLinkArmWithObject2D
-from comb.mode import ModeState
 from comb.solver import find_satisfying_state, solve
 
 
@@ -39,10 +38,14 @@ def test_single_revolute_3d_starts_valid():
 def test_single_revolute_3d_solves_delta():
     """Applying a delta to the single 3D revolute example matches FK."""
     ex = SingleRevolute3D()
-    new_config, new_poses = solve(ex.mode, delta={ex.joint: np.array([np.pi / 2])})
-    assert new_config[ex.joint]["angle"] == pytest.approx(np.pi / 2, abs=1e-9)
+    new_state = solve(ex.mode, delta={ex.joint: np.array([np.pi / 2])})
+    assert new_state.configuration[ex.joint]["angle"] == pytest.approx(
+        np.pi / 2, abs=1e-9
+    )
     expected_link_pose = ex.base.pose * SE3.AngVec(np.pi / 2, [0, 0, 1])
-    np.testing.assert_allclose(new_poses[ex.link].A, expected_link_pose.A, atol=1e-9)
+    np.testing.assert_allclose(
+        new_state.body_poses[ex.link].A, expected_link_pose.A, atol=1e-9
+    )
 
 
 def test_two_link_arm_3d_starts_valid():
@@ -55,7 +58,7 @@ def test_two_link_arm_3d_starts_valid():
 def test_two_link_arm_3d_solves_delta_propagates():
     """A delta on joint_ab propagates through the unchanged joint_bc."""
     ex = TwoLinkArm3D(link_length=1.0)
-    _, new_poses = solve(ex.mode, delta={ex.joint_ab: np.array([np.pi / 2])})
+    new_poses = solve(ex.mode, delta={ex.joint_ab: np.array([np.pi / 2])}).body_poses
     expected_a = (
         ex.base.pose * SE3.Trans([1.0, 0.0, 0.0]) * SE3.AngVec(np.pi / 2, [0, 0, 1])
     )
@@ -73,7 +76,7 @@ def test_single_revolute_2d_starts_valid():
 def test_single_revolute_2d_solves_delta():
     """Applying a delta to the 2D revolute example matches FK."""
     ex = SingleRevolute2D()
-    _, new_poses = solve(ex.mode, delta={ex.joint: np.array([np.pi / 4])})
+    new_poses = solve(ex.mode, delta={ex.joint: np.array([np.pi / 4])}).body_poses
     expected_link = ex.base.pose * SE2(0.0, 0.0, np.pi / 4)
     np.testing.assert_allclose(new_poses[ex.link].A, expected_link.A, atol=1e-9)
 
@@ -88,7 +91,7 @@ def test_two_link_arm_2d_starts_valid():
 def test_two_link_arm_2d_solves_delta_propagates():
     """A delta on joint_ab propagates through the unchanged joint_bc."""
     ex = TwoLinkArm2D(link_length=1.0)
-    _, new_poses = solve(ex.mode, delta={ex.joint_ab: np.array([np.pi / 2])})
+    new_poses = solve(ex.mode, delta={ex.joint_ab: np.array([np.pi / 2])}).body_poses
     # Each link's frame sits at its joint pivot, so after rotating joint_ab
     # by 90 deg about z, link_a's frame is still at the base origin but
     # rotated 90 deg, and link_b's frame sits at link_a's far end.
@@ -109,15 +112,15 @@ def test_mobile_base_2d_starts_valid():
 def test_mobile_base_2d_solves_delta_drives_base():
     """A delta on the planar joint moves the base to (tx, ty, theta) in world frame."""
     ex = MobileBase2D()
-    new_cfg, new_poses = solve(
+    new_state = solve(
         ex.mode,
         delta={ex.joint: np.array([1.5, -0.5, np.pi / 3])},
     )
-    np.testing.assert_allclose(new_poses[ex.base].t, [1.5, -0.5], atol=1e-7)
-    assert new_poses[ex.base].theta() == pytest.approx(np.pi / 3, abs=1e-7)
-    assert new_cfg[ex.joint]["tx"] == pytest.approx(1.5)
-    assert new_cfg[ex.joint]["ty"] == pytest.approx(-0.5)
-    assert new_cfg[ex.joint]["theta"] == pytest.approx(np.pi / 3)
+    np.testing.assert_allclose(new_state.body_poses[ex.base].t, [1.5, -0.5], atol=1e-7)
+    assert new_state.body_poses[ex.base].theta() == pytest.approx(np.pi / 3, abs=1e-7)
+    assert new_state.configuration[ex.joint]["tx"] == pytest.approx(1.5)
+    assert new_state.configuration[ex.joint]["ty"] == pytest.approx(-0.5)
+    assert new_state.configuration[ex.joint]["theta"] == pytest.approx(np.pi / 3)
 
 
 def test_arm_with_object_2d_starts_valid():
@@ -134,9 +137,8 @@ def test_arm_with_object_2d_pickup_transition_attaches_block_to_arm():
     ex = TwoLinkArmWithObject2D()
     # Drive the arm so its tip is at the block's pose by augmenting with the
     # tip-at-block constraint and IK-solving.
-    cfg, poses = find_satisfying_state(ex.mode, [ex.pickup_trigger])
-    near_state = ModeState(configuration=cfg, body_poses=poses)
-    ex.mode.apply(near_state)
+    near_state = find_satisfying_state(ex.mode, [ex.pickup_trigger])
+    ex.mode.set_state(near_state)
     assert ex.pickup_transition.is_enabled(ex.mode.snapshot())
 
     new_mode = ex.pickup_transition.apply(ex.mode, ex.mode.snapshot())
@@ -153,9 +155,9 @@ def test_arm_with_object_2d_pickup_transition_attaches_block_to_arm():
     rel_at_attach = (
         new_mode.body_poses[ex.arm.link_b].inv() * new_mode.body_poses[ex.block]
     )
-    _, after_move_poses = solve(
+    after_move_poses = solve(
         new_mode, delta={ex.arm.joint_ab: np.array([-np.pi / 6])}
-    )
+    ).body_poses
     rel_after_move = after_move_poses[ex.arm.link_b].inv() * after_move_poses[ex.block]
     np.testing.assert_allclose(rel_after_move.A, rel_at_attach.A, atol=1e-6)
 
@@ -170,6 +172,6 @@ def test_fixed_pair_3d_solves_after_perturbation():
     """If we manually perturb the child's pose, the solver pulls it back."""
     ex = FixedPair3D(translation=(1.0, 2.0, 3.0))
     ex.mode.body_poses[ex.child] = SE3.Trans([5.0, 5.0, 5.0])
-    _, new_poses = solve(ex.mode)
+    new_poses = solve(ex.mode).body_poses
     expected_child = ex.base.pose * SE3.Trans([1.0, 2.0, 3.0])
     np.testing.assert_allclose(new_poses[ex.child].A, expected_child.A, atol=1e-7)

@@ -13,7 +13,11 @@ import numpy as np
 from spatialmath import SE2
 
 from comb.bodies import Body, Rectangle
-from comb.constraints import Configuration, ConstraintParameters, PlanarJoint2D
+from comb.constraints import (
+    ConstraintConfiguration,
+    ConstraintParameters,
+    PlanarJoint2D,
+)
 from comb.mode import Mode
 from comb.system import System
 
@@ -39,7 +43,7 @@ class MobileBase2D:
             body2=self.base,
             fixed_parameters=ConstraintParameters(values=np.array([]), names=()),
         )
-        config = Configuration(
+        config = ConstraintConfiguration(
             {
                 self.joint: ConstraintParameters(
                     values=np.array([0.0, 0.0, 0.0]),

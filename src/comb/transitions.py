@@ -26,8 +26,8 @@ from spatialmath import SE2
 
 from comb.bodies import Body, BodyPoses, PoseT
 from comb.constraints import (
-    Configuration,
     Constraint,
+    ConstraintConfiguration,
     ConstraintParameters,
     FixedJoint2D,
 )
@@ -109,7 +109,7 @@ class ConstraintTransition(Generic[PoseT]):
         added = list(self.add(state))
         new_constraints = kept + added
 
-        new_config = Configuration()
+        new_config = ConstraintConfiguration()
         for c in kept:
             if c in state.configuration:
                 new_config[c] = state.configuration[c]
@@ -131,34 +131,50 @@ class ConstraintTransition(Generic[PoseT]):
         )
 
 
-def rigid_attachment_2d(
-    body1: Body[SE2], body2: Body[SE2]
-) -> Callable[[ModeState[SE2]], list[Constraint[SE2]]]:
-    """An ``add`` factory that rigidly attaches ``body2`` to ``body1``.
+class RigidAttachment2D(ConstraintTransition[SE2]):
+    """A ``ConstraintTransition`` that rigidly attaches ``body2`` to ``body1``.
 
-    Returns a callable suitable for ``ConstraintTransition.add``. At apply time
-    it captures the *current* relative transform between the two bodies and
-    builds a ``FixedJoint2D`` enforcing it — so ``body2`` stays at its current
-    pose-relative-to-``body1`` from then on.
+    When ``trigger``'s residual norm falls below ``tolerance``, applying this
+    transition captures the *current* relative transform between the two bodies
+    and adds a ``FixedJoint2D`` enforcing it — so ``body2`` stays at its
+    current pose-relative-to-``body1`` from then on.
+
+    ``detach_from`` is a list of constraints that should be removed at the
+    moment of attachment (e.g. a world-to-body pin that previously held the
+    body in place).
     """
 
-    def make(state: ModeState[SE2]) -> list[Constraint[SE2]]:
-        rel = state.body_poses[body1].inv() * state.body_poses[body2]
-        return [
-            FixedJoint2D(
-                body1=body1,
-                body2=body2,
-                fixed_parameters=ConstraintParameters(
-                    values=np.array(
-                        [
-                            float(rel.t[0]),
-                            float(rel.t[1]),
-                            float(rel.theta()),
-                        ]
+    def __init__(
+        self,
+        body1: Body[SE2],
+        body2: Body[SE2],
+        *,
+        trigger: Constraint[SE2],
+        tolerance: float,
+        detach_from: Iterable[Constraint[SE2]] = (),
+    ) -> None:
+        def add(state: ModeState[SE2]) -> list[Constraint[SE2]]:
+            rel = state.body_poses[body1].inv() * state.body_poses[body2]
+            return [
+                FixedJoint2D(
+                    body1=body1,
+                    body2=body2,
+                    fixed_parameters=ConstraintParameters(
+                        values=np.array(
+                            [
+                                float(rel.t[0]),
+                                float(rel.t[1]),
+                                float(rel.theta()),
+                            ]
+                        ),
+                        names=FixedJoint2D.fixed_parameter_names(),
                     ),
-                    names=FixedJoint2D.fixed_parameter_names(),
-                ),
-            )
-        ]
+                )
+            ]
 
-    return make
+        super().__init__(
+            trigger=trigger,
+            tolerance=tolerance,
+            add=add,
+            remove=tuple(detach_from),
+        )
