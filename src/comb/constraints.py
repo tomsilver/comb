@@ -206,6 +206,35 @@ class FixedJoint3D(Joint3D):
 
 
 @dataclass(frozen=True, eq=False)
+class PlanarJoint2D(Joint2D):
+    """A free SE(2) joint whose three components are all mutable parameters.
+
+    Body2 is unconstrained relative to body1: the joint exposes the relative
+    transform as ``(tx, ty, theta)`` configuration parameters. Useful for
+    mobile bases — ``PlanarJoint2D(world, base)`` lets the base drive around
+    in the plane, with parameters the planner can target.
+
+    Parameter spaces default to ``Real`` for the translations and ``Circle``
+    for the rotation (so heading wraps around).
+    """
+
+    @classmethod
+    def fixed_parameter_names(cls) -> tuple[str, ...]:
+        return ()
+
+    @classmethod
+    def parameter_names(cls) -> tuple[str, ...]:
+        return ("tx", "ty", "theta")
+
+    @classmethod
+    def default_parameter_spaces(cls) -> tuple[ParameterSpace, ...]:
+        return (Real(), Real(), Circle())
+
+    def relative_transform(self, parameters: ConstraintParameters) -> SE2:
+        return SE2(parameters["tx"], parameters["ty"], parameters["theta"])
+
+
+@dataclass(frozen=True, eq=False)
 class PointEquality2D(Constraint[SE2]):
     """A point fixed in ``body2``'s frame coincides with a point in ``body1``'s frame.
 

@@ -6,6 +6,7 @@ from spatialmath import SE2, SE3
 
 from comb.constraints import ConstraintParameters
 from comb.examples.fixed_pair_3d import FixedPair3D
+from comb.examples.mobile_base_2d import MobileBase2D
 from comb.examples.single_revolute_2d import SingleRevolute2D
 from comb.examples.single_revolute_3d import SingleRevolute3D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
@@ -93,6 +94,28 @@ def test_two_link_arm_2d_solves_delta_propagates():
     expected_b = expected_a * SE2(1.0, 0.0, 0.0)
     np.testing.assert_allclose(new_poses[ex.link_a].A, expected_a.A, atol=1e-7)
     np.testing.assert_allclose(new_poses[ex.link_b].A, expected_b.A, atol=1e-7)
+
+
+def test_mobile_base_2d_starts_valid():
+    """The mobile base example builds in a valid state with the base at the origin."""
+    ex = MobileBase2D()
+    assert _residual_norm(ex.system) < 1e-12
+    assert ex.system.anchored_bodies == [ex.world]
+    np.testing.assert_array_equal(ex.system.body_poses[ex.base].t, [0.0, 0.0])
+
+
+def test_mobile_base_2d_solves_delta_drives_base():
+    """A delta on the planar joint moves the base to (tx, ty, theta) in world frame."""
+    ex = MobileBase2D()
+    new_cfg, new_poses = solve(
+        ex.system,
+        delta={ex.joint: np.array([1.5, -0.5, np.pi / 3])},
+    )
+    np.testing.assert_allclose(new_poses[ex.base].t, [1.5, -0.5], atol=1e-7)
+    assert new_poses[ex.base].theta() == pytest.approx(np.pi / 3, abs=1e-7)
+    assert new_cfg[ex.joint]["tx"] == pytest.approx(1.5)
+    assert new_cfg[ex.joint]["ty"] == pytest.approx(-0.5)
+    assert new_cfg[ex.joint]["theta"] == pytest.approx(np.pi / 3)
 
 
 def test_fixed_pair_3d_starts_valid():
