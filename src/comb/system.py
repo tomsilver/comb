@@ -19,6 +19,8 @@ ambiguous and the solver will refuse to run.
 natural value type for trajectories that drive a system through time.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Generic
 
@@ -71,6 +73,26 @@ class System(Generic[PoseT]):
         for body in self.anchored_bodies:
             if id(body) not in body_ids:
                 raise ValueError(f"Anchored body {body.name!r} is not in the system")
+
+    def snapshot(self) -> SystemState[PoseT]:
+        """An independent ``SystemState`` capturing this system's current state.
+
+        The returned ``Configuration`` and ``BodyPoses`` are fresh containers, so
+        later mutation of the system doesn't leak into the snapshot.
+        """
+        return SystemState(
+            configuration=Configuration(
+                {c: self.configuration[c] for c in self.configuration}
+            ),
+            body_poses=BodyPoses({b: self.body_poses[b] for b in self.bodies}),
+        )
+
+    def apply(self, state: SystemState[PoseT]) -> None:
+        """Push ``state``'s contents into this system's mutable state in place."""
+        for body in self.bodies:
+            self.body_poses[body] = state.body_poses[body]
+        for constraint in state.configuration:
+            self.configuration[constraint] = state.configuration[constraint]
 
 
 @dataclass(frozen=True)

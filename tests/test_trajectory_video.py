@@ -2,20 +2,17 @@
 
 Run with ``pytest tests/test_trajectory_video.py --make-videos`` to render a gif into
 ``unit_test_videos/`` so you can eyeball the trajectory. Without the flag, the test
-still runs and just verifies that enumerating the trajectory and rendering each sample
-is healthy end-to-end.
+still runs and just verifies that planning + enumerating + rendering each sample is
+healthy end-to-end.
 
-A waypoint here is a target delta for the joint parameters. Linear interpolation between
-two valid ``SystemState``s walks the configuration manifold and the body-pose manifold
-independently, so constraint residuals are zero only at the endpoints — the further
-apart in pose distance, the more visibly the arm comes apart mid-segment. We avoid that
-by stepping each waypoint in ``_SUBSTEPS_PER_WAYPOINT`` substeps and calling ``solve``
-at every substep, so each linear segment spans only a small slice of the manifold. This
-is the same trick the future trajectory-producing solver will do automatically via its
-``interval`` parameter.
+The trajectory is built by ``SteppingPlanner.plan`` for each waypoint (an end-effector
+pose pinned via a FixedJoint to a world body), then ``concatenate``-d together. The
+``interval`` keeps adjacent checkpoints close on the constraint manifold, so linear
+interpolation between them doesn't visibly detach the links.
 """
 
 import math
+from collections.abc import Iterable
 from pathlib import Path
 
 import matplotlib
@@ -26,116 +23,137 @@ matplotlib.use("Agg")  # headless backend for tests
 import numpy as np
 import pytest
 from matplotlib import animation, pyplot
+from spatialmath import SE2
 
-from comb.bodies import BodyPoses
-from comb.constraints import Configuration
+from comb.bodies import Body, BodyPoses, Rectangle
+from comb.constraints import Constraint, ConstraintParameters, FixedJoint2D
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
+from comb.planners.stepping import SteppingPlanner
 from comb.rendering.matplotlib_2d import MatplotlibRenderer2D
+from comb.rendering.overlays import GhostBodies
 from comb.solver import solve
-from comb.system import SystemState, interpolate_system_state
-from comb.trajectories import Trajectory, concatenate, linear_segment
+from comb.system import System, SystemState
+from comb.trajectories import Trajectory, concatenate
 from tests.conftest import MAKE_VIDEOS
 
-_SUBSTEPS_PER_WAYPOINT = 16
+_INTERVAL = 0.1
 
 
-def _snapshot(arm: TwoLinkArm2D) -> SystemState:
-    """Independent SystemState that won't alias the arm's mutable state."""
-    return SystemState(
-        configuration=Configuration(
-            {c: arm.system.configuration[c] for c in arm.system.configuration}
-        ),
-        body_poses=BodyPoses({b: arm.system.body_poses[b] for b in arm.system.bodies}),
+def _world_body() -> Body[SE2]:
+    return Body(
+        name="world",
+        pose=SE2(),
+        visual_geometry=Rectangle(0.0, 0.0),
+        collision_geometry=Rectangle(0.0, 0.0),
     )
 
 
-def _apply(arm: TwoLinkArm2D, state: SystemState) -> None:
-    """Push a SystemState into the arm's system so the renderer picks it up."""
-    for constraint in state.configuration:
-        arm.system.configuration[constraint] = state.configuration[constraint]
-    for body in arm.system.bodies:
-        arm.system.body_poses[body] = state.body_poses[body]
+def _augmented(arm: TwoLinkArm2D, world: Body[SE2]) -> System[SE2]:
+    return System(
+        bodies=arm.system.bodies + [world],
+        constraints=list(arm.system.constraints),
+        configuration=arm.system.configuration,
+        body_poses=BodyPoses(
+            {b: arm.system.body_poses[b] for b in arm.system.bodies} | {world: SE2()}
+        ),
+        anchored_bodies=arm.system.anchored_bodies + [world],
+    )
 
 
-def _trajectory_through_waypoints(
-    arm: TwoLinkArm2D,
-    waypoints: list[dict],
-    duration_per_waypoint: float,
-    n_substeps: int,
-) -> Trajectory[SystemState]:
-    """Solve the way to each waypoint in substeps and stitch the results.
+def _pin(world: Body[SE2], body: Body[SE2], pose: SE2) -> FixedJoint2D:
+    return FixedJoint2D(
+        body1=world,
+        body2=body,
+        fixed_parameters=ConstraintParameters(
+            values=np.array([float(pose.t[0]), float(pose.t[1]), float(pose.theta())]),
+            names=FixedJoint2D.fixed_parameter_names(),
+        ),
+    )
 
-    Each waypoint is a delta on joint parameters (same shape as ``solve``'s ``delta``
-    argument). Splitting it into ``n_substeps`` solver calls keeps consecutive
-    checkpoints close on the constraint manifold, so the linear segments between them
-    stay near-valid.
+
+def _plan_through(
+    system: System[SE2],
+    waypoints: Iterable[Iterable[Constraint[SE2]]],
+    duration_per_segment: float,
+) -> tuple[Trajectory[SystemState], list[SystemState]]:
+    """Plan to each waypoint in turn; return the joined trajectory and per-waypoint goal
+    states.
+
+    Each waypoint is a set of final constraints handed to the planner. The end-of-
+    segment ``SystemState`` is the goal state the planner reached, so we return those
+    alongside the trajectory for visualization.
     """
-    state = _snapshot(arm)
+    planner = SteppingPlanner(interval=_INTERVAL)
     segments = []
-    sub_dt = duration_per_waypoint / n_substeps
-    for delta in waypoints:
-        substep_delta = {
-            c: np.asarray(d, dtype=float) / n_substeps for c, d in delta.items()
-        }
-        for _ in range(n_substeps):
-            cfg, poses = solve(arm.system, delta=substep_delta)
-            next_state = SystemState(configuration=cfg, body_poses=poses)
-            segments.append(
-                linear_segment(
-                    state,
-                    next_state,
-                    duration=sub_dt,
-                    interpolate=interpolate_system_state,
-                )
-            )
-            _apply(arm, next_state)
-            state = next_state
-    return concatenate(segments)
+    goal_states: list[SystemState] = []
+    for finals in waypoints:
+        segment = planner.plan(system, finals, horizon=duration_per_segment)
+        segments.append(segment)
+        end_state = segment(segment.duration)
+        goal_states.append(end_state)
+        system.apply(end_state)
+    return concatenate(segments), goal_states
+
+
+def _reachable_link_b_pose(arm: TwoLinkArm2D, ab: float, bc: float) -> SE2:
+    """End-effector pose reachable at the given joint angles (constructed via solve)."""
+    _, poses = solve(
+        arm.system,
+        delta={
+            arm.joint_ab: np.array([ab]),
+            arm.joint_bc: np.array([bc]),
+        },
+    )
+    return poses[arm.link_b]
 
 
 def test_two_link_arm_trajectory_video():
-    """Build a SystemState trajectory through joint-delta waypoints and render it.
+    """Plan a multi-waypoint trajectory steering link_b through end-effector poses.
 
-    Each waypoint is split into substeps so the linear segments stay close to the
-    constraint manifold and the arm doesn't visibly come apart between checkpoints. This
-    anticipates what the future trajectory-producing solver will do automatically.
+    Goals are reachable poses constructed by querying ``solve`` at known joint
+    configurations — picking arbitrary SE(2) poses would be over-constrained for a 2-DoF
+    arm.
     """
     arm = TwoLinkArm2D()
+    world = _world_body()
+    system = _augmented(arm, world)
+    pose_a = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 3)
+    pose_b = _reachable_link_b_pose(arm, ab=math.pi / 2, bc=math.pi / 6)
     waypoints = [
-        # Lift shoulder, swing elbow back.
-        {
-            arm.joint_ab: np.array([math.pi / 4]),
-            arm.joint_bc: np.array([-math.pi / 3]),
-        },
-        # Lift shoulder more, swing elbow forward.
-        {
-            arm.joint_ab: np.array([math.pi / 4]),
-            arm.joint_bc: np.array([math.pi / 2]),
-        },
+        [_pin(world, arm.link_b, pose_a)],
+        [_pin(world, arm.link_b, pose_b)],
     ]
-    traj = _trajectory_through_waypoints(
-        arm,
-        waypoints,
-        duration_per_waypoint=1.0,
-        n_substeps=_SUBSTEPS_PER_WAYPOINT,
-    )
-    assert traj.duration == pytest.approx(len(waypoints))
+    traj, goal_states = _plan_through(system, waypoints, duration_per_segment=1.0)
+    assert traj.duration == pytest.approx(2.0)
 
     samples = list(traj.enumerate(0.05))
 
     fig, ax = pyplot.subplots(figsize=(5, 5))
     renderer = MatplotlibRenderer2D(ax=ax)
 
+    # Persistent ghost overlays for every waypoint goal, in distinct colors.
+    ghost_colors = ["tab:orange", "tab:green"]
+    ghosts = [
+        GhostBodies(
+            bodies=arm.system.bodies,
+            body_poses=goal.body_poses,
+            color=color,
+            alpha=0.25,
+        )
+        for goal, color in zip(goal_states, ghost_colors)
+    ]
+
     def draw(frame_idx: int) -> list:
         _, state = samples[frame_idx]
-        _apply(arm, state)
-        renderer.render(arm.system)
-        # FuncAnimation expects an iterable of Artists for blitting; we redraw
-        # the whole axes each frame, so an empty list is sufficient.
+        # Renderer draws the original arm system; just push the moving bodies in.
+        for body in arm.system.bodies:
+            arm.system.body_poses[body] = state.body_poses[body]
+        for c in arm.system.configuration:
+            arm.system.configuration[c] = state.configuration[c]
+        renderer.render(arm.system, overlays=ghosts)
         return []
 
     if not MAKE_VIDEOS:
-        # Smoke-check rendering on a few frames so the test is fast in CI.
         for idx in (0, len(samples) // 2, len(samples) - 1):
             draw(idx)
         pyplot.close(fig)

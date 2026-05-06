@@ -1,22 +1,23 @@
-"""Solver: find a close valid configuration after applying a parameter delta.
+"""Solver: find a close valid state for a system.
 
-Given a ``System`` with a (presumably valid) configuration and body poses, plus
-a ``delta`` mapping a subset of constraints to parameter offsets, ``solve``
-returns a new ``(Configuration, BodyPoses)`` that drives the stacked constraint
-residuals toward zero — exact for kinematic trees, least-squares for loops or
-over-constrained systems.
+Two functions:
 
-Semantics: parameters in ``delta`` are set to ``current + delta``; parameters
-not in ``delta`` are held at their current values; only body poses are
-optimized to satisfy the constraints. Bodies in ``system.anchored_bodies``
-keep their poses fixed; at least one anchor is required to remove the global
-SE(2)/SE(3) gauge.
+* :func:`solve` — apply a parameter delta and update body poses to satisfy
+  the system's constraints. Joint parameters are *fixed* at ``current+delta``;
+  only body poses are optimized. Used by the GUI (slider tick) and by the
+  stepping planner's inner loop.
 
-The implementation is a simple Gauss-Newton iteration with a finite-difference
-Jacobian. Body poses are updated via SE(2)/SE(3) twist exponentials.
+* :func:`find_satisfying_state` — joint parameters AND body poses are both
+  optimization variables. Finds a state that satisfies the system's
+  constraints plus any number of *extra* constraints. Useful for finding goal
+  states from posed constraints (e.g. "end-effector at world pose X").
+
+Both use Gauss-Newton with a finite-difference Jacobian. Body poses update
+via SE(2)/SE(3) twist exponentials; parameters update via each
+``ParameterSpace.retract`` so circular angles wrap and bounded reals clamp.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 import numpy as np
@@ -143,6 +144,151 @@ def solve(
             body_pose_curr[body] = body_pose_curr[body] * exp_map(twist)
 
     return _build_outputs(system, params_curr, body_pose_curr)
+
+
+def find_satisfying_state(
+    system: System[PoseT],
+    extra_constraints: Iterable[Constraint[PoseT]] = (),
+    *,
+    max_iterations: int = 100,
+    residual_tolerance: float = 1e-6,
+    step_tolerance: float = 1e-12,
+    max_step_norm: float = 1.0,
+) -> tuple[Configuration, BodyPoses[PoseT]]:
+    """Find a state satisfying ``system.constraints + extra_constraints``.
+
+    Joint parameters and body poses are *both* optimization variables. Initial
+    values come from ``system.configuration`` / ``system.body_poses``; any
+    parameterized constraint in ``extra_constraints`` not present in the
+    system's configuration starts at zero.
+
+    Raises ``RuntimeError`` if the residual can't be driven below
+    ``residual_tolerance`` within ``max_iterations`` — typically meaning the
+    augmented constraint set is unsatisfiable from the given initial state.
+    """
+    extras = list(extra_constraints)
+    all_constraints = list(system.constraints) + extras
+    twist_dim, exp_map = _twist_dim_and_exp(system)
+    if not system.anchored_bodies:
+        raise ValueError(
+            "find_satisfying_state() requires system.anchored_bodies to be "
+            "non-empty: without an anchor, the SE(2)/SE(3) gauge is ambiguous"
+        )
+
+    bodies = list(system.bodies)
+    anchored_ids = {id(b) for b in system.anchored_bodies}
+    movable_bodies = [b for b in bodies if id(b) not in anchored_ids]
+    body_offsets = {b: i * twist_dim for i, b in enumerate(movable_bodies)}
+    n_pose_vars = len(movable_bodies) * twist_dim
+
+    parameterized = [c for c in all_constraints if c.parameter_names()]
+    param_offsets: dict[Constraint[PoseT], tuple[int, int]] = {}
+    cursor = n_pose_vars
+    for c in parameterized:
+        n = len(c.parameter_names())
+        param_offsets[c] = (cursor, n)
+        cursor += n
+    n_vars = cursor
+
+    body_pose_curr: dict[Body[PoseT], Any] = {b: system.body_poses[b] for b in bodies}
+    params_curr: dict[Constraint[PoseT], np.ndarray] = {}
+    for c in parameterized:
+        if c in system.configuration:
+            params_curr[c] = system.configuration[c].values.astype(float).copy()
+        else:
+            params_curr[c] = np.zeros(len(c.parameter_names()))
+
+    def evaluate_residuals() -> np.ndarray:
+        body_poses_obj = BodyPoses(body_pose_curr)
+        residuals = []
+        for c in all_constraints:
+            if c.parameter_names():
+                params = ConstraintParameters(params_curr[c], c.parameter_names())
+            else:
+                params = ConstraintParameters(np.array([]), ())
+            residuals.append(c.constraint_function(params, body_poses_obj))
+        if not residuals:
+            return np.array([])
+        return np.concatenate(residuals)
+
+    def perturb(var_idx: int, eps: float) -> Callable[[], None]:
+        if var_idx < n_pose_vars:
+            body_idx, twist_idx = divmod(var_idx, twist_dim)
+            body = movable_bodies[body_idx]
+            saved = body_pose_curr[body]
+            twist = np.zeros(twist_dim)
+            twist[twist_idx] = eps
+            body_pose_curr[body] = saved * exp_map(twist)
+            return lambda: body_pose_curr.__setitem__(body, saved)
+        for c, (off, n) in param_offsets.items():
+            if off <= var_idx < off + n:
+                pidx = var_idx - off
+                saved = params_curr[c].copy()
+                new = saved.copy()
+                space = c.parameter_spaces[pidx]
+                new[pidx] = space.retract(float(saved[pidx]), eps)
+                params_curr[c] = new
+                return lambda: params_curr.__setitem__(c, saved)
+        raise IndexError(f"var_idx={var_idx} out of variable range")
+
+    final_residual_norm = float("inf")
+    if n_vars > 0:
+        prev_residual_norm = float("inf")
+        for _ in range(max_iterations):
+            residuals = evaluate_residuals()
+            if residuals.size == 0:
+                break
+            residual_norm = float(np.linalg.norm(residuals))
+            final_residual_norm = residual_norm
+            if residual_norm < residual_tolerance:
+                break
+            if prev_residual_norm - residual_norm < residual_tolerance:
+                break
+            prev_residual_norm = residual_norm
+
+            jacobian = np.empty((residuals.size, n_vars))
+            for v in range(n_vars):
+                undo = perturb(v, _FD_EPSILON)
+                r_pert = evaluate_residuals()
+                undo()
+                jacobian[:, v] = (r_pert - residuals) / _FD_EPSILON
+
+            step, *_ = np.linalg.lstsq(jacobian, -residuals, rcond=None)
+            step_norm = float(np.linalg.norm(step))
+            if step_norm > max_step_norm:
+                step = step * (max_step_norm / step_norm)
+            if step_norm < step_tolerance:
+                break
+
+            for body, off in body_offsets.items():
+                twist = step[off : off + twist_dim]
+                body_pose_curr[body] = body_pose_curr[body] * exp_map(twist)
+            for c, (off, n) in param_offsets.items():
+                tangent = step[off : off + n]
+                spaces = c.parameter_spaces
+                params_curr[c] = np.array(
+                    [
+                        spaces[i].retract(float(params_curr[c][i]), float(tangent[i]))
+                        for i in range(n)
+                    ]
+                )
+        # Final residual check after the loop.
+        final_residual_norm = float(np.linalg.norm(evaluate_residuals()))
+
+    if final_residual_norm > residual_tolerance:
+        raise RuntimeError(
+            f"find_satisfying_state failed to converge: residual norm "
+            f"{final_residual_norm:g} > tolerance {residual_tolerance:g}; the "
+            f"augmented constraint set may be unsatisfiable from the initial state"
+        )
+
+    config = Configuration()
+    for c in system.constraints:
+        if c.parameter_names():
+            config[c] = ConstraintParameters(
+                values=params_curr[c], names=c.parameter_names()
+            )
+    return config, BodyPoses({b: _sanitize_pose(p) for b, p in body_pose_curr.items()})
 
 
 def _twist_dim_and_exp(
