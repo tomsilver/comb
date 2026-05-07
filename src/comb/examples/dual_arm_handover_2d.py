@@ -24,6 +24,7 @@ Two transitions are bundled in the system:
 """
 
 import math
+from collections.abc import Callable
 
 import numpy as np
 from spatialmath import SE2
@@ -37,7 +38,7 @@ from comb.constraints import (
     PointEquality2D,
     RevoluteJoint2D,
 )
-from comb.mode import Mode
+from comb.mode import Mode, ModeState
 from comb.system import System
 from comb.transitions import ConstraintTransition
 
@@ -262,10 +263,12 @@ class DualArmHandover2D:
         )
 
 
-def _make_rigid_attachment_factory(body1, body2):
+def _make_rigid_attachment_factory(
+    body1: Body[SE2], body2: Body[SE2]
+) -> Callable[[ModeState[SE2]], list[Constraint[SE2]]]:
     """Build an ``add`` callable that captures body2's relative pose to body1."""
 
-    def add(state):
+    def add(state: ModeState[SE2]) -> list[Constraint[SE2]]:
         rel = state.body_poses[body1].inv() * state.body_poses[body2]
         return [
             FixedJoint2D(

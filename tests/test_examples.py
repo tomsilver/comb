@@ -6,6 +6,7 @@ from spatialmath import SE2, SE3
 
 from comb.constraints import ConstraintParameters, HingeJoint2D, PointEquality2D
 from comb.examples.door_2d import Door2D
+from comb.examples.dual_arm_handover_2d import DualArmHandover2D
 from comb.examples.fixed_pair_3d import FixedPair3D
 from comb.examples.mobile_arm_door_2d import MobileArmDoor2D
 from comb.examples.mobile_base_2d import MobileBase2D
@@ -246,8 +247,6 @@ def test_mobile_arm_door_2d_attach_swaps_in_hinge_and_grip():
 
 def test_dual_arm_handover_2d_starts_valid():
     """The dual-arm-handover example builds in a valid state with the object pinned."""
-    from comb.examples.dual_arm_handover_2d import DualArmHandover2D
-
     ex = DualArmHandover2D()
     assert _residual_norm(ex.mode) < 1e-12
     assert ex.world_to_object in ex.mode.constraints
@@ -260,8 +259,6 @@ def test_dual_arm_handover_2d_starts_valid():
 def test_dual_arm_handover_2d_pickup_swaps_object_to_arm_a():
     """Bringing arm A's tip to the object enables pickup; applying it grafts the object
     onto arm A."""
-    from comb.examples.dual_arm_handover_2d import DualArmHandover2D
-
     ex = DualArmHandover2D()
     near_state = find_satisfying_state(ex.mode, [ex.pickup_trigger])
     ex.mode.set_state(near_state)
@@ -280,8 +277,6 @@ def test_dual_arm_handover_2d_pickup_swaps_object_to_arm_a():
 def test_dual_arm_handover_2d_handover_swaps_object_from_a_to_b():
     """After pickup, bringing arm B to the object fires handover: A grip out, B grip
     in."""
-    from comb.examples.dual_arm_handover_2d import DualArmHandover2D
-
     ex = DualArmHandover2D()
     # Stage 1: pick up with arm A.
     near_state = find_satisfying_state(ex.mode, [ex.pickup_trigger])
