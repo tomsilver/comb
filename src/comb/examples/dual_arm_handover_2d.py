@@ -24,7 +24,6 @@ Two transitions are bundled in the system:
 """
 
 import math
-from collections.abc import Callable
 
 import numpy as np
 from spatialmath import SE2
@@ -38,7 +37,8 @@ from comb.constraints import (
     PointEquality2D,
     RevoluteJoint2D,
 )
-from comb.mode import Mode, ModeState
+from comb.generators import rigid_attachment_2d
+from comb.mode import Mode
 from comb.system import System
 from comb.transitions import ConstraintTransition
 
@@ -234,7 +234,7 @@ class DualArmHandover2D:
         self.pickup_transition: ConstraintTransition[SE2] = ConstraintTransition(
             trigger=self.pickup_trigger,
             tolerance=attach_tolerance,
-            add=_make_rigid_attachment_factory(self.arm_a_link_b, self.object_body),
+            add=rigid_attachment_2d(self.arm_a_link_b, self.object_body),
             remove=(self.world_to_object,),
         )
 
@@ -253,7 +253,7 @@ class DualArmHandover2D:
         self.handover_transition: ConstraintTransition[SE2] = ConstraintTransition(
             trigger=self.handover_trigger,
             tolerance=attach_tolerance,
-            add=_make_rigid_attachment_factory(self.arm_b_link_b, self.object_body),
+            add=rigid_attachment_2d(self.arm_b_link_b, self.object_body),
             remove=_remove_a_grip,
         )
 
@@ -261,30 +261,3 @@ class DualArmHandover2D:
             mode=self.mode,
             transitions=(self.pickup_transition, self.handover_transition),
         )
-
-
-def _make_rigid_attachment_factory(
-    body1: Body[SE2], body2: Body[SE2]
-) -> Callable[[ModeState[SE2]], list[Constraint[SE2]]]:
-    """Build an ``add`` callable that captures body2's relative pose to body1."""
-
-    def add(state: ModeState[SE2]) -> list[Constraint[SE2]]:
-        rel = state.body_poses[body1].inv() * state.body_poses[body2]
-        return [
-            FixedJoint2D(
-                body1=body1,
-                body2=body2,
-                fixed_parameters=ConstraintParameters(
-                    values=np.array(
-                        [
-                            float(rel.t[0]),
-                            float(rel.t[1]),
-                            float(rel.theta()),
-                        ]
-                    ),
-                    names=FixedJoint2D.fixed_parameter_names(),
-                ),
-            )
-        ]
-
-    return add

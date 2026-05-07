@@ -8,7 +8,9 @@ yes/no condition (residual norm below ``tolerance``).
 
 Canonical use is hybrid / mode-switching planning — rigidly attaching an
 object to the gripper when the gripper tip is close to it, breaking that
-attachment later, contact establishment / breaking, etc.
+attachment later, contact establishment / breaking, etc. Common
+state-capturing ``add`` callbacks (rigid attach, point pin, freeze in
+place) live in :mod:`comb.generators` so spec-language YAML can name them.
 
 The transition is just data; how it's used (manual, planner-driven) is up to
 the caller. ``apply(mode, state)`` returns a *new* ``Mode`` reflecting the
@@ -22,14 +24,12 @@ from dataclasses import dataclass, field
 from typing import Generic
 
 import numpy as np
-from spatialmath import SE2
 
-from comb.bodies import Body, BodyPoses, PoseT
+from comb.bodies import BodyPoses, PoseT
 from comb.constraints import (
     Constraint,
     ConstraintConfiguration,
     ConstraintParameters,
-    FixedJoint2D,
 )
 from comb.mode import Mode, ModeState
 
@@ -144,53 +144,4 @@ class ConstraintTransition(Generic[PoseT]):
             configuration=new_config,
             body_poses=new_body_poses,
             anchored_bodies=list(mode.anchored_bodies),
-        )
-
-
-class RigidAttachment2D(ConstraintTransition[SE2]):
-    """A ``ConstraintTransition`` that rigidly attaches ``body2`` to ``body1``.
-
-    When ``trigger``'s residual norm falls below ``tolerance``, applying this
-    transition captures the *current* relative transform between the two bodies
-    and adds a ``FixedJoint2D`` enforcing it — so ``body2`` stays at its
-    current pose-relative-to-``body1`` from then on.
-
-    ``detach_from`` is a list of constraints that should be removed at the
-    moment of attachment (e.g. a world-to-body pin that previously held the
-    body in place).
-    """
-
-    def __init__(
-        self,
-        body1: Body[SE2],
-        body2: Body[SE2],
-        *,
-        trigger: Constraint[SE2],
-        tolerance: float,
-        detach_from: Iterable[Constraint[SE2]] = (),
-    ) -> None:
-        def add(state: ModeState[SE2]) -> list[Constraint[SE2]]:
-            rel = state.body_poses[body1].inv() * state.body_poses[body2]
-            return [
-                FixedJoint2D(
-                    body1=body1,
-                    body2=body2,
-                    fixed_parameters=ConstraintParameters(
-                        values=np.array(
-                            [
-                                float(rel.t[0]),
-                                float(rel.t[1]),
-                                float(rel.theta()),
-                            ]
-                        ),
-                        names=FixedJoint2D.fixed_parameter_names(),
-                    ),
-                )
-            ]
-
-        super().__init__(
-            trigger=trigger,
-            tolerance=tolerance,
-            add=add,
-            remove=tuple(detach_from),
         )

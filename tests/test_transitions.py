@@ -15,9 +15,10 @@ from comb.constraints import (
     RevoluteJoint2D,
 )
 from comb.examples.two_link_arm_2d import TwoLinkArm2D
+from comb.generators import rigid_attachment_2d
 from comb.mode import Mode, ModeState
 from comb.solver import solve
-from comb.transitions import ConstraintTransition, RigidAttachment2D
+from comb.transitions import ConstraintTransition
 
 
 def _world_body() -> Body[SE2]:
@@ -229,7 +230,11 @@ def test_canonical_rigid_attachment_to_end_effector():
             names=PointEquality2D.fixed_parameter_names(),
         ),
     )
-    transition = RigidAttachment2D(arm.link_b, obj, trigger=trigger, tolerance=0.05)
+    transition = ConstraintTransition(
+        trigger=trigger,
+        tolerance=0.05,
+        add=rigid_attachment_2d(arm.link_b, obj),
+    )
     assert transition.is_enabled(mode.snapshot())
 
     attached_mode = transition.apply(mode, mode.snapshot())
