@@ -11,12 +11,13 @@ from comb.constraints import (
     ConstraintParameters,
     FixedJoint2D,
     FixedJoint3D,
+    HingeJoint2D,
     PlanarJoint2D,
     PointEquality2D,
     RevoluteJoint2D,
     RevoluteJoint3D,
 )
-from comb.parameter_spaces import Circle, Real
+from comb.parameter_spaces import BoundedReal, Circle, Real
 
 
 def _make_body_3d(name: str) -> Body[SE3]:
@@ -202,6 +203,67 @@ def test_revolute_joint_2d_structure():
     assert joint.fixed_parameters["origin_x"] == 0.5
     assert joint.fixed_parameters["origin_y"] == -0.25
     assert joint.parameter_names() == ("angle",)
+
+
+def test_hinge_joint_2d_uses_bounded_real_from_fixed_params():
+    """HingeJoint2D's parameter_spaces is a BoundedReal whose limits come from
+    fixed_parameters."""
+    a, b = _make_body_2d("a"), _make_body_2d("b")
+    hinge = HingeJoint2D(
+        body1=a,
+        body2=b,
+        fixed_parameters=ConstraintParameters(
+            values=np.array([0.0, 0.0, -0.5, 1.5]),
+            names=HingeJoint2D.fixed_parameter_names(),
+        ),
+    )
+    assert hinge.fixed_parameter_names() == (
+        "origin_x",
+        "origin_y",
+        "min_angle",
+        "max_angle",
+    )
+    assert hinge.parameter_names() == ("angle",)
+    (space,) = hinge.parameter_spaces
+    assert isinstance(space, BoundedReal)
+    assert space.lower == -0.5
+    assert space.upper == 1.5
+
+
+def test_hinge_joint_2d_relative_transform_matches_revolute():
+    """At any in-bounds angle, the hinge's transform equals the revolute equivalent."""
+    a, b = _make_body_2d("a"), _make_body_2d("b")
+    hinge = HingeJoint2D(
+        body1=a,
+        body2=b,
+        fixed_parameters=ConstraintParameters(
+            values=np.array([0.5, 0.0, 0.0, np.pi]),
+            names=HingeJoint2D.fixed_parameter_names(),
+        ),
+    )
+    transform = hinge.relative_transform(
+        ConstraintParameters(values=np.array([np.pi / 2]), names=("angle",))
+    )
+    np.testing.assert_allclose(transform.t, [0.5, 0.0])
+    assert transform.theta() == pytest.approx(np.pi / 2)
+
+
+def test_hinge_joint_2d_rejects_out_of_range_angle():
+    """ConstraintConfiguration rejects an angle outside the hinge's bounded range."""
+    a, b = _make_body_2d("a"), _make_body_2d("b")
+    hinge = HingeJoint2D(
+        body1=a,
+        body2=b,
+        fixed_parameters=ConstraintParameters(
+            values=np.array([0.0, 0.0, 0.0, np.pi]),
+            names=HingeJoint2D.fixed_parameter_names(),
+        ),
+    )
+    config = ConstraintConfiguration()
+    with pytest.raises(ValueError, match="not in space"):
+        config[hinge] = ConstraintParameters(
+            values=np.array([2 * np.pi]), names=("angle",)
+        )
 
 
 def test_fixed_joint_3d_structure():
