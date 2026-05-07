@@ -84,3 +84,20 @@ class Planner(abc.ABC):
         horizon: float,
     ) -> Plan[PoseT]:
         """Plan a trajectory ending at a state satisfying ``final_constraints``."""
+
+
+# Re-export the plan validator. Imported lazily / at the bottom because it
+# pulls in System / Mode (which transitively reference us via ``Plan``).
+from comb.planners.validate import (  # noqa: E402  pylint: disable=wrong-import-position
+    PlanValidationError,
+    validate_plan,
+)
+
+__all__ = [
+    "Plan",
+    "Planner",
+    "PlanValidationError",
+    "PlanningError",
+    "TransitionEvent",
+    "validate_plan",
+]
