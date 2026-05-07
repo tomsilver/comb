@@ -1,0 +1,32 @@
+name: two_link_arm_with_object
+includes:
+  - two_link_arm.lib.yaml
+bodies:
+  world:
+    visual_geometry: {shape: rectangle, width: 0.0, height: 0.0}
+    collision_geometry: {shape: rectangle, width: 0.0, height: 0.0}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+    anchored: true
+  block:
+    visual_geometry: {shape: rectangle, width: 0.15, height: 0.15}
+    collision_geometry: {shape: rectangle, width: 0.15, height: 0.15}
+    pose: {x: 0.5, y: 1.0, theta: 0.0}
+constraints:
+  world_to_block:
+    type: FixedJoint2D
+    body1: world
+    body2: block
+    fixed_parameters: {tx: 0.5, ty: 1.0, theta: 0.0}
+transitions:
+  pickup:
+    trigger:
+      type: PointEquality2D
+      body1: block
+      body2: link_b
+      fixed_parameters: {target_x: 0.0, target_y: 0.0, offset_x: 1.0, offset_y: 0.0}
+    tolerance: 0.05
+    add:
+      - generator: rigid_attachment_2d
+        args: {body1: link_b, body2: block}
+    remove:
+      - world_to_block
