@@ -88,7 +88,9 @@ def _plan_through(
     segments = []
     goal_states: list[ModeState] = []
     for finals in waypoints:
-        segment = planner.plan(System(mode=mode), finals, horizon=duration_per_segment)
+        segment = planner.plan(
+            System(mode=mode), finals, horizon=duration_per_segment
+        ).trajectory
         segments.append(segment)
         end_state = segment(segment.duration)
         goal_states.append(end_state)

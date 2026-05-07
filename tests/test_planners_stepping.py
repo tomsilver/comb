@@ -99,7 +99,8 @@ def test_plan_reaches_goal_pose():
     mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 4)
     final = [_pin(world, arm.link_b, goal)]
-    traj = SteppingPlanner(interval=0.2).plan(System(mode=mode), final, horizon=1.0)
+    plan = SteppingPlanner(interval=0.2).plan(System(mode=mode), final, horizon=1.0)
+    traj = plan.trajectory
     end = traj(traj.duration)
     assert _se2_distance(end.body_poses[arm.link_b], goal) < 1e-3
 
@@ -124,9 +125,10 @@ def test_plan_respects_interval_between_checkpoints():
     mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 3, bc=-math.pi / 4)
     interval = 0.15
-    traj = SteppingPlanner(interval=interval).plan(
+    plan = SteppingPlanner(interval=interval).plan(
         System(mode=mode), [_pin(world, arm.link_b, goal)], horizon=1.0
     )
+    traj = plan.trajectory
     samples = [traj(i / 200 * traj.duration) for i in range(201)]
     max_local = max(
         _se2_distance(prev.body_poses[body], nxt.body_poses[body])
@@ -141,10 +143,10 @@ def test_plan_horizon_is_exact():
     arm = TwoLinkArm2D()
     mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 6, bc=math.pi / 6)
-    traj = SteppingPlanner(interval=0.2).plan(
+    plan = SteppingPlanner(interval=0.2).plan(
         System(mode=mode), [_pin(world, arm.link_b, goal)], horizon=3.7
     )
-    assert traj.duration == pytest.approx(3.7)
+    assert plan.trajectory.duration == pytest.approx(3.7)
 
 
 def test_plan_already_at_goal_returns_constant():
@@ -153,7 +155,8 @@ def test_plan_already_at_goal_returns_constant():
     mode, world = _arm_with_world(arm)
     # Pin link_b at its current pose — already satisfied.
     final = [_pin(world, arm.link_b, SE2(mode.body_poses[arm.link_b]))]
-    traj = SteppingPlanner(interval=0.1).plan(System(mode=mode), final, horizon=1.0)
+    plan = SteppingPlanner(interval=0.1).plan(System(mode=mode), final, horizon=1.0)
+    traj = plan.trajectory
     assert traj.duration == pytest.approx(1.0)
     s0, s_mid, s_end = traj(0.0), traj(0.5), traj(1.0)
     for body in arm.mode.bodies:
@@ -205,11 +208,15 @@ def test_smaller_interval_yields_path_closer_to_manifold():
     mode, world = _arm_with_world(arm)
     goal = _reachable_link_b_pose(arm, ab=math.pi / 3, bc=-math.pi / 4)
     final = [_pin(world, arm.link_b, goal)]
-    traj_coarse = SteppingPlanner(interval=0.5).plan(
-        System(mode=mode), final, horizon=1.0
+    traj_coarse = (
+        SteppingPlanner(interval=0.5)
+        .plan(System(mode=mode), final, horizon=1.0)
+        .trajectory
     )
-    traj_fine = SteppingPlanner(interval=0.05).plan(
-        System(mode=mode), final, horizon=1.0
+    traj_fine = (
+        SteppingPlanner(interval=0.05)
+        .plan(System(mode=mode), final, horizon=1.0)
+        .trajectory
     )
     n = 50
     coarse_avg = sum(
@@ -242,10 +249,60 @@ def test_plan_uses_transitions_via_bfs_to_pick_and_place():
             names=PointEquality2D.fixed_parameter_names(),
         ),
     )
-    trajectory = SteppingPlanner(interval=0.1).plan(ex.system, [goal], horizon=2.0)
+    plan = SteppingPlanner(interval=0.1).plan(ex.system, [goal], horizon=2.0)
+    trajectory = plan.trajectory
     end_state = trajectory(trajectory.duration)
     np.testing.assert_allclose(
         end_state.body_poses[ex.block].t,
         [placement_xy[0], placement_xy[1]],
         atol=1e-3,
     )
+
+
+def test_plan_sample_times_span_horizon_monotonically():
+    """``sample_times`` is monotonic, starts at 0, and ends at the horizon."""
+    arm = TwoLinkArm2D()
+    mode, world = _arm_with_world(arm)
+    goal = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 4)
+    plan = SteppingPlanner(interval=0.2).plan(
+        System(mode=mode), [_pin(world, arm.link_b, goal)], horizon=1.7
+    )
+    times = plan.sample_times
+    assert times[0] == 0.0
+    assert times[-1] == pytest.approx(1.7)
+    assert all(b > a for a, b in zip(times, times[1:]))
+
+
+def test_plan_with_no_transitions_has_no_events():
+    """A within-mode plan emits an empty events tuple."""
+    arm = TwoLinkArm2D()
+    mode, world = _arm_with_world(arm)
+    goal = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 4)
+    plan = SteppingPlanner(interval=0.2).plan(
+        System(mode=mode), [_pin(world, arm.link_b, goal)], horizon=1.0
+    )
+    assert not plan.events
+
+
+def test_plan_records_one_event_per_fired_transition():
+    """Pickup BFS plan records the pickup transition as a single event.
+
+    The event time is one of the trajectory's checkpoint times (the time of the first
+    state in the post-pickup mode).
+    """
+    ex = TwoLinkArmWithObject2D()
+    placement_xy = (-0.6, 1.2)
+    goal = PointEquality2D(
+        body1=ex.world,
+        body2=ex.block,
+        fixed_parameters=ConstraintParameters(
+            values=np.array([placement_xy[0], placement_xy[1], 0.0, 0.0]),
+            names=PointEquality2D.fixed_parameter_names(),
+        ),
+    )
+    plan = SteppingPlanner(interval=0.1).plan(ex.system, [goal], horizon=2.0)
+    assert len(plan.events) == 1
+    event = plan.events[0]
+    assert event.transition is ex.pickup_transition
+    assert 0.0 < event.time < 2.0
+    assert any(t == pytest.approx(event.time) for t in plan.sample_times)
