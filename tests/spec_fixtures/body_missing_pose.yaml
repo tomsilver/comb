@@ -1,0 +1,5 @@
+name: bad
+bodies:
+  base:
+    visual_geometry: {shape: rectangle, width: 0.1, height: 0.1}
+    collision_geometry: {shape: rectangle, width: 0.1, height: 0.1}

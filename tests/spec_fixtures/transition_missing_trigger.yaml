@@ -1,0 +1,4 @@
+name: bad
+transitions:
+  pickup:
+    tolerance: 0.05

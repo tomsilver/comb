@@ -1,0 +1,11 @@
+name: bad
+transitions:
+  pickup:
+    trigger:
+      type: PointEquality2D
+      body1: a
+      body2: b
+      fixed_parameters: {target_x: 0, target_y: 0, offset_x: 0, offset_y: 0}
+    tolerance: 0.05
+    add:
+      generator: rigid_attachment_2d

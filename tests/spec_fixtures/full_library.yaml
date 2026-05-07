@@ -1,0 +1,33 @@
+name: pickup_arm
+includes:
+  - other.lib.yaml
+bodies:
+  base:
+    visual_geometry: {shape: rectangle, width: 0.2, height: 0.2}
+    collision_geometry: {shape: rectangle, width: 0.2, height: 0.2}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+    anchored: true
+  link_b:
+    visual_geometry: {shape: rectangle, width: 1.0, height: 0.05, offset_x: 0.5}
+    collision_geometry: {shape: rectangle, width: 1.0, height: 0.05, offset_x: 0.5}
+    pose: {x: 1.0, y: 0.0, theta: 0.0}
+constraints:
+  joint_ab:
+    type: RevoluteJoint2D
+    body1: base
+    body2: link_b
+    fixed_parameters: {origin_x: 0.0, origin_y: 0.0}
+    initial_parameters: {angle: 0.0}
+transitions:
+  pickup:
+    trigger:
+      type: PointEquality2D
+      body1: block
+      body2: link_b
+      fixed_parameters: {target_x: 0, target_y: 0, offset_x: 1.0, offset_y: 0}
+    tolerance: 0.05
+    add:
+      - generator: rigid_attachment_2d
+        args: {body1: link_b, body2: block}
+    remove:
+      - world_to_block

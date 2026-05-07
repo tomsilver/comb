@@ -19,6 +19,7 @@ from comb.spec.library import (
     PoseSpec,
     TransitionSpec,
 )
+from comb.spec.load import LibraryLoadError, load_library_file
 
 __all__ = [
     "BodySpec",
@@ -26,6 +27,8 @@ __all__ = [
     "GeneratorCallSpec",
     "GeometrySpec",
     "LibrarySpec",
+    "LibraryLoadError",
     "PoseSpec",
     "TransitionSpec",
+    "load_library_file",
 ]
