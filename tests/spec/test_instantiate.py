@@ -30,7 +30,7 @@ from comb.spec import (
 )
 from comb.transitions import ConstraintTransition
 
-_FIXTURES = Path(__file__).parent / "spec_fixtures"
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 # --- helpers ---

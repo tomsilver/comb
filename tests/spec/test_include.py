@@ -6,7 +6,7 @@ import pytest
 
 from comb.spec import LibraryLoadError, load_library
 
-_FIXTURES = Path(__file__).parent / "spec_fixtures"
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_no_includes_passthrough() -> None:

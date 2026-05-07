@@ -13,7 +13,7 @@ from comb.spec import (
     load_task_file,
 )
 
-_FIXTURES = Path(__file__).parent / "spec_fixtures"
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _fx(name: str) -> Path:

@@ -1,6 +1,6 @@
 """Tests for the single-file YAML library loader.
 
-Fixture YAML lives in ``tests/spec_fixtures/``. Storing them as files (rather than
+Fixture YAML lives in ``tests/spec/fixtures/``. Storing them as files (rather than
 triple-quoted strings inline in the test source) keeps docformatter from mistaking them
 for docstrings and rewriting their content.
 """
@@ -20,7 +20,7 @@ from comb.spec import (
     load_library_file,
 )
 
-_FIXTURES = Path(__file__).parent / "spec_fixtures"
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _fx(name: str) -> Path:

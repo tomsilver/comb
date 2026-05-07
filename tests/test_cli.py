@@ -7,7 +7,7 @@ import yaml
 
 from comb.cli import main
 
-_FIXTURES = Path(__file__).parent / "spec_fixtures"
+_FIXTURES = Path(__file__).parent / "spec" / "fixtures"
 
 
 def test_validate_library_ok(capsys: pytest.CaptureFixture[str]) -> None:
