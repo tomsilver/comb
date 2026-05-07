@@ -28,6 +28,9 @@ develop = [
     "types-PyYAML",
 ]
 
+[project.scripts]
+comb = "comb.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
