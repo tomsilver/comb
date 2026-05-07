@@ -25,6 +25,13 @@ from comb.spec.load import (
     load_library_file,
     load_task_file,
 )
+from comb.spec.plan import (
+    PlanSerializationError,
+    plan_from_yaml,
+    plan_from_yaml_file,
+    plan_to_yaml,
+    plan_to_yaml_file,
+)
 from comb.spec.task import InitialModeSpec, TaskSpec
 from comb.spec.validate import SpecValidationError, validate_library, validate_task
 
@@ -36,6 +43,7 @@ __all__ = [
     "InitialModeSpec",
     "LibrarySpec",
     "LibraryLoadError",
+    "PlanSerializationError",
     "PoseSpec",
     "SpecValidationError",
     "TaskSpec",
@@ -43,6 +51,10 @@ __all__ = [
     "load_library",
     "load_library_file",
     "load_task_file",
+    "plan_from_yaml",
+    "plan_from_yaml_file",
+    "plan_to_yaml",
+    "plan_to_yaml_file",
     "validate_library",
     "validate_task",
 ]
