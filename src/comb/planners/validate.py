@@ -20,14 +20,17 @@ linear interpolation may leave the manifold) is not checked here — that's a
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from comb.bodies import PoseT
 from comb.constraints import Constraint, ConstraintParameters
 from comb.mode import Mode, ModeState
-from comb.planners import Plan
 from comb.system import System
+
+if TYPE_CHECKING:
+    from comb.planners import Plan
 
 
 class PlanValidationError(Exception):
