@@ -10,6 +10,13 @@ The YAML loader, include resolver, task loader, and spec-level validator
 land in subsequent PRs.
 """
 
+from comb.spec.instantiate import (
+    InstantiatedLibrary,
+    InstantiatedTask,
+    SpecInstantiationError,
+    instantiate_library,
+    instantiate_task,
+)
 from comb.spec.library import (
     BodySpec,
     ConstraintSpec,
@@ -41,13 +48,18 @@ __all__ = [
     "GeneratorCallSpec",
     "GeometrySpec",
     "InitialModeSpec",
+    "InstantiatedLibrary",
+    "InstantiatedTask",
     "LibrarySpec",
     "LibraryLoadError",
     "PlanSerializationError",
     "PoseSpec",
+    "SpecInstantiationError",
     "SpecValidationError",
     "TaskSpec",
     "TransitionSpec",
+    "instantiate_library",
+    "instantiate_task",
     "load_library",
     "load_library_file",
     "load_task_file",

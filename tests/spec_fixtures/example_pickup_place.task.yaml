@@ -1,0 +1,8 @@
+name: pickup_and_place
+library: example_two_link_arm_with_object.lib.yaml
+initial_mode: {}
+goal:
+  - type: PointEquality2D
+    body1: world
+    body2: block
+    fixed_parameters: {target_x: -0.6, target_y: 1.2, offset_x: 0.0, offset_y: 0.0}

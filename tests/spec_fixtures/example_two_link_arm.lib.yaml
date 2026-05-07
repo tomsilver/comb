@@ -1,0 +1,28 @@
+name: two_link_arm
+bodies:
+  base:
+    visual_geometry: {shape: rectangle, width: 0.2, height: 0.2}
+    collision_geometry: {shape: rectangle, width: 0.2, height: 0.2}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+    anchored: true
+  link_a:
+    visual_geometry: {shape: rectangle, width: 1.0, height: 0.05, offset_x: 0.5}
+    collision_geometry: {shape: rectangle, width: 1.0, height: 0.05, offset_x: 0.5}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+  link_b:
+    visual_geometry: {shape: rectangle, width: 1.0, height: 0.05, offset_x: 0.5}
+    collision_geometry: {shape: rectangle, width: 1.0, height: 0.05, offset_x: 0.5}
+    pose: {x: 1.0, y: 0.0, theta: 0.0}
+constraints:
+  joint_ab:
+    type: RevoluteJoint2D
+    body1: base
+    body2: link_a
+    fixed_parameters: {origin_x: 0.0, origin_y: 0.0}
+    initial_parameters: {angle: 0.0}
+  joint_bc:
+    type: RevoluteJoint2D
+    body1: link_a
+    body2: link_b
+    fixed_parameters: {origin_x: 1.0, origin_y: 0.0}
+    initial_parameters: {angle: 0.0}
