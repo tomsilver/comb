@@ -1,0 +1,4 @@
+name: bad
+includes:
+  - other.lib.yaml
+  - 42

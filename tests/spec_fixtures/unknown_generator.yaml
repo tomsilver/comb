@@ -1,0 +1,12 @@
+name: still_loads
+transitions:
+  weird:
+    trigger:
+      type: PointEquality2D
+      body1: a
+      body2: b
+      fixed_parameters: {target_x: 0, target_y: 0, offset_x: 0, offset_y: 0}
+    tolerance: 0.05
+    add:
+      - generator: not_a_real_generator
+        args: {body1: a, body2: b}
