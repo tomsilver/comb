@@ -39,7 +39,7 @@ from comb.spec.plan import (
     plan_to_yaml,
     plan_to_yaml_file,
 )
-from comb.spec.task import InitialModeSpec, TaskSpec
+from comb.spec.task import GranularitySpec, InitialModeSpec, TaskSpec
 from comb.spec.validate import SpecValidationError, validate_library, validate_task
 
 __all__ = [
@@ -47,6 +47,7 @@ __all__ = [
     "ConstraintSpec",
     "GeneratorCallSpec",
     "GeometrySpec",
+    "GranularitySpec",
     "InitialModeSpec",
     "InstantiatedLibrary",
     "InstantiatedTask",

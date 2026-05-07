@@ -124,6 +124,12 @@ def validate_task(task: TaskSpec, lib: LibrarySpec) -> None:
     for i, goal in enumerate(task.goal):
         _validate_constraint(goal, body_names, source=f"goal[{i}]")
 
+    if task.granularity is not None and task.granularity.max_segment_twist <= 0:
+        raise SpecValidationError(
+            f"granularity.max_segment_twist must be positive, "
+            f"got {task.granularity.max_segment_twist}"
+        )
+
     _validate_connectivity(task, lib)
 
 

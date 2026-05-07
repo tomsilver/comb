@@ -95,3 +95,25 @@ def test_body_poses_must_be_mapping() -> None:
     """``body_poses`` is keyed by body name; a list is rejected."""
     with pytest.raises(LibraryLoadError, match=r"body_poses: expected mapping"):
         load_task_file(_fx("task_initial_mode_body_poses_not_mapping.yaml"))
+
+
+def test_load_task_with_granularity() -> None:
+    """A task with a ``granularity:`` block parses into ``GranularitySpec``."""
+    task = load_task_file(_fx("task_with_granularity.yaml"))
+    assert task.granularity is not None
+    assert task.granularity.max_segment_twist == 0.15
+
+
+def test_granularity_missing_required_key_raises() -> None:
+    """``granularity`` requires ``max_segment_twist``."""
+    with pytest.raises(
+        LibraryLoadError,
+        match=r"granularity: missing required key 'max_segment_twist'",
+    ):
+        load_task_file(_fx("task_granularity_missing_field.yaml"))
+
+
+def test_task_default_granularity_is_none() -> None:
+    """Tasks without a ``granularity:`` block leave the field as ``None``."""
+    task = load_task_file(_fx("minimal_task.yaml"))
+    assert task.granularity is None

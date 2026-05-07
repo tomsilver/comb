@@ -212,6 +212,38 @@ def test_validate_plan_round_trip_ok(
     assert "ok" in captured.out
 
 
+def test_plan_uses_task_granularity_as_default_interval(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without ``--interval``, the planner uses the task's max_segment_twist.
+
+    Verified by validating the plan against the same granularity bound — if
+    the planner had ignored the granularity (used the larger CLI default of
+    0.1), validation would reject the plan.
+    """
+    plan_path = tmp_path / "plan.yaml"
+    rc = main(
+        [
+            "plan",
+            str(_FIXTURES / "example_pickup_place_with_granularity.task.yaml"),
+            "-o",
+            str(plan_path),
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()
+    rc = main(
+        [
+            "validate",
+            "plan",
+            str(plan_path),
+            "--task",
+            str(_FIXTURES / "example_pickup_place_with_granularity.task.yaml"),
+        ]
+    )
+    assert rc == 0
+
+
 def test_validate_plan_tight_tolerance_returns_1(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

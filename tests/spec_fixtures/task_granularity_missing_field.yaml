@@ -1,0 +1,4 @@
+name: bad
+library: minimal.lib.yaml
+initial_mode: {}
+granularity: {}

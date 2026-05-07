@@ -20,11 +20,12 @@ linear interpolation may leave the manifold) is not checked here — that's a
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from spatialmath import SE2, SE3, Twist2, Twist3
 
-from comb.bodies import PoseT
+from comb.bodies import BodyPoses, PoseT
 from comb.constraints import Constraint, ConstraintParameters
 from comb.mode import Mode, ModeState
 from comb.system import System
@@ -43,6 +44,7 @@ def validate_plan(
     *,
     goal: Iterable[Constraint[PoseT]] = (),
     tolerance: float = 1e-6,
+    max_segment_twist: float | None = None,
 ) -> None:
     """Verify that ``plan`` is a valid execution of ``system``.
 
@@ -51,6 +53,10 @@ def validate_plan(
     at the prior checkpoint), and checks that every active constraint's
     residual stays within ``tolerance`` at every sample time. ``goal`` is
     a final-state set the last checkpoint must additionally satisfy.
+
+    If ``max_segment_twist`` is given, every body's twist-norm distance
+    between adjacent checkpoints must be at most that bound — typically
+    sourced from a task's :class:`comb.spec.GranularitySpec`.
 
     Raises :class:`PlanValidationError` on the first failure.
     """
@@ -120,6 +126,17 @@ def validate_plan(
             f"({times[-1]:g})"
         )
 
+    if max_segment_twist is not None:
+        for prev_t, next_t in zip(times, times[1:]):
+            prev_state = plan.trajectory(prev_t)
+            next_state = plan.trajectory(next_t)
+            distance = _max_pose_distance(prev_state.body_poses, next_state.body_poses)
+            if distance > max_segment_twist:
+                raise PlanValidationError(
+                    f"segment t=[{prev_t:g}, {next_t:g}]: max body twist "
+                    f"{distance:g} > granularity {max_segment_twist:g}"
+                )
+
     final_state = plan.trajectory(times[-1])
     for goal_constraint in goal_constraints:
         residual_norm = _residual_norm(goal_constraint, final_state)
@@ -142,6 +159,25 @@ def _copy_mode(mode: Mode[PoseT]) -> Mode[PoseT]:
         body_poses=snapshot.body_poses,
         anchored_bodies=list(mode.anchored_bodies),
     )
+
+
+def _max_pose_distance(prev: BodyPoses[PoseT], curr: BodyPoses[PoseT]) -> float:
+    """Largest twist-norm distance between matching body poses in two snapshots."""
+    return max(
+        (_pose_distance(prev[body], curr[body]) for body in prev if body in curr),
+        default=0.0,
+    )
+
+
+def _pose_distance(a: Any, b: Any) -> float:
+    """Twist-norm distance between two SE(2) / SE(3) poses (or L2 for ndarrays)."""
+    if isinstance(a, SE2):
+        return float(np.linalg.norm(Twist2(a.inv() * b).A))
+    if isinstance(a, SE3):
+        return float(np.linalg.norm(Twist3(a.inv() * b).A))
+    if isinstance(a, np.ndarray):
+        return float(np.linalg.norm(b - a))
+    raise TypeError(f"cannot compute distance for pose type {type(a).__name__}")
 
 
 def _residual_norm(constraint: Constraint[PoseT], state: ModeState[PoseT]) -> float:

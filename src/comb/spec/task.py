@@ -1,9 +1,12 @@
 """Parsed-AST data types for a comb task YAML file.
 
 A task is the PDDL-problem analog: it instantiates a library, declares the
-mode that holds at t=0, and names the goal constraints the planner must
-satisfy. The library reference is a path string here; resolving it against
-the loaded :class:`LibrarySpec` is the validator's (B5) job.
+mode that holds at t=0, names the goal constraints the planner must
+satisfy, and (optionally) declares the *plan granularity* — the maximum
+body-twist any plan claiming to solve this task is allowed to traverse
+between adjacent checkpoints. The library reference is a path string here;
+resolving it against the loaded :class:`LibrarySpec` is the validator's
+job.
 
 As with libraries, the dataclasses mirror the YAML schema 1:1. The loader
 (:mod:`comb.spec.load`) returns these types unchanged.
@@ -15,6 +18,20 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from comb.spec.library import ConstraintSpec, PoseSpec
+
+
+@dataclass(frozen=True)
+class GranularitySpec:
+    """Plan-quality bounds the task imposes on any solving plan.
+
+    ``max_segment_twist`` is the largest body-twist-norm distance any body
+    is permitted to traverse between adjacent plan checkpoints. The
+    :class:`comb.planners.SteppingPlanner` uses this directly as its
+    ``interval``, and the plan validator rejects plans whose adjacent
+    sample states violate it.
+    """
+
+    max_segment_twist: float
 
 
 @dataclass(frozen=True)
@@ -52,3 +69,4 @@ class TaskSpec:
     library: str
     initial_mode: InitialModeSpec
     goal: tuple[ConstraintSpec, ...] = ()
+    granularity: GranularitySpec | None = None
