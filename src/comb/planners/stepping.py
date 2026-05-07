@@ -14,6 +14,12 @@ Within a mode, stepping calls :func:`solve` in a loop with the same
 ``interval`` bound on per-checkpoint body twist distance, so adjacent
 checkpoints stay close on the constraint manifold and linear interpolation
 between them stays near-valid.
+
+The flat list of solver checkpoints across all visited modes is returned as
+a :class:`Plan`: every mode contributes its entry state and every subsequent
+stepping checkpoint. Two adjacent checkpoints across a transition share
+body poses but differ in configuration (the new mode's constraint set). The
+:class:`TransitionEvent` records the time of the post-transition state.
 """
 
 from __future__ import annotations
@@ -29,10 +35,11 @@ from spatialmath import SE2, SE3, Twist2, Twist3
 from comb.bodies import BodyPoses, PoseT
 from comb.constraints import Constraint, ConstraintConfiguration
 from comb.mode import Mode, ModeState, interpolate_mode_state
-from comb.planners import Planner, PlanningError
+from comb.planners import Plan, Planner, PlanningError, TransitionEvent
 from comb.solver import UnsatisfiableConstraints, find_satisfying_state, solve
 from comb.system import System
-from comb.trajectories import Trajectory, concatenate, constant, linear_segment
+from comb.trajectories import concatenate, constant, linear_segment
+from comb.transitions import ConstraintTransition
 
 
 class _WithinModeFailure(PlanningError):
@@ -64,7 +71,7 @@ class SteppingPlanner(Planner):
         system: System[PoseT],
         final_constraints: Iterable[Constraint[PoseT]],
         horizon: float,
-    ) -> Trajectory[ModeState[PoseT]]:
+    ) -> Plan[PoseT]:
         if horizon <= 0:
             raise ValueError(f"horizon must be positive, got {horizon}")
         finals = list(final_constraints)
@@ -72,7 +79,7 @@ class SteppingPlanner(Planner):
         initial_mode = _internal_copy(system.mode)
         initial_state = initial_mode.snapshot()
         queue: deque[_BfsNode[PoseT]] = deque(
-            [_BfsNode(initial_mode, initial_state, [initial_state])]
+            [_BfsNode(initial_mode, initial_state, [], [])]
         )
 
         for _ in range(self.max_modes):
@@ -83,7 +90,8 @@ class SteppingPlanner(Planner):
             # 1. Can we reach the goal from this mode?
             try:
                 tail = self._states_within_mode(node.mode, node.entry_state, finals)
-                return self._build_trajectory(node.states_so_far + tail[1:], horizon)
+                full_states = node.states_before_entry + tail
+                return self._build_plan(full_states, node.events, horizon)
             except _WithinModeFailure:
                 pass
 
@@ -99,11 +107,19 @@ class SteppingPlanner(Planner):
                     next_mode = transition.apply(node.mode, approach[-1])
                 except ValueError:
                     continue
+                # ``approach`` starts at this node's entry state; concatenating
+                # it onto ``states_before_entry`` makes the child's
+                # ``states_before_entry`` end at the trigger state (in the old
+                # mode). The child's own entry_state will sit immediately
+                # after, marking the post-transition slot in the flat list.
+                child_before = node.states_before_entry + approach
+                event_idx = len(child_before)
                 queue.append(
                     _BfsNode(
-                        next_mode,
-                        next_mode.snapshot(),
-                        node.states_so_far + approach[1:],
+                        mode=next_mode,
+                        entry_state=next_mode.snapshot(),
+                        states_before_entry=child_before,
+                        events=node.events + [(event_idx, transition)],
                     )
                 )
 
@@ -163,33 +179,53 @@ class SteppingPlanner(Planner):
                 )
             scale /= 2
 
-    def _build_trajectory(
-        self, states: list[ModeState[PoseT]], horizon: float
-    ) -> Trajectory[ModeState[PoseT]]:
+    def _build_plan(
+        self,
+        states: list[ModeState[PoseT]],
+        event_records: list[tuple[int, ConstraintTransition[PoseT]]],
+        horizon: float,
+    ) -> Plan[PoseT]:
         n_segments = len(states) - 1
         if n_segments == 0:
-            return constant(states[0], horizon)
-        sub_dt = horizon / n_segments
-        return concatenate(
-            [
-                linear_segment(
-                    states[i],
-                    states[i + 1],
-                    duration=sub_dt,
-                    interpolate=interpolate_mode_state,
-                )
-                for i in range(n_segments)
-            ]
+            sample_times: tuple[float, ...] = (0.0,)
+            trajectory = constant(states[0], horizon)
+        else:
+            sub_dt = horizon / n_segments
+            sample_times = tuple(i * sub_dt for i in range(len(states)))
+            trajectory = concatenate(
+                [
+                    linear_segment(
+                        states[i],
+                        states[i + 1],
+                        duration=sub_dt,
+                        interpolate=interpolate_mode_state,
+                    )
+                    for i in range(n_segments)
+                ]
+            )
+        events = tuple(
+            TransitionEvent(time=sample_times[idx], transition=t)
+            for idx, t in event_records
         )
+        return Plan(trajectory=trajectory, events=events, sample_times=sample_times)
 
 
 @dataclass(frozen=True)
 class _BfsNode(Generic[PoseT]):
-    """One entry in the BFS queue: a mode, its entry state, and the path so far."""
+    """One entry in the BFS queue.
+
+    ``states_before_entry`` is the flat list of solver checkpoints that
+    precede this node's ``entry_state`` in the eventual plan. ``events`` is
+    the list of ``(state_index, transition)`` records for transitions fired
+    on the path leading to this node, where ``state_index`` is the position
+    of the post-transition state (this node's entry, for the most recent
+    event) in the final flat state list.
+    """
 
     mode: Mode[PoseT]
     entry_state: ModeState[PoseT]
-    states_so_far: list[ModeState[PoseT]]
+    states_before_entry: list[ModeState[PoseT]]
+    events: list[tuple[int, ConstraintTransition[PoseT]]]
 
 
 def _internal_copy(mode: Mode[PoseT]) -> Mode[PoseT]:
