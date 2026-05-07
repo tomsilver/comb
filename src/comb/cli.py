@@ -10,6 +10,8 @@ Subcommands:
 * ``comb validate library LIB`` — structural validation of a library.
 * ``comb validate task TASK`` — structural validation of a task against
   its referenced library.
+* ``comb validate plan PLAN --task TASK`` — load a saved plan against the
+  task's library and run :func:`comb.planners.validate_plan`.
 
 The CLI catches the spec-language and planner exceptions and turns them
 into a one-line stderr message + exit code 1, so shell pipelines can
@@ -24,7 +26,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from comb.planners import PlanningError, validate_plan
+from comb.planners import PlanningError, PlanValidationError, validate_plan
 from comb.planners.stepping import SteppingPlanner
 from comb.spec import (
     LibraryLoadError,
@@ -130,6 +132,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     vtask.add_argument("task", help="Path to a task YAML file.")
     vtask.set_defaults(func=_cmd_validate_task)
+    vplan = validate_sub.add_parser(
+        "plan",
+        help="Validate a saved plan YAML against its task and library.",
+    )
+    vplan.add_argument("plan", help="Path to a plan YAML file.")
+    vplan.add_argument(
+        "--task",
+        required=True,
+        help="Task YAML the plan was generated from (resolves the library "
+        "and the goal the plan must satisfy).",
+    )
+    vplan.add_argument(
+        "--tolerance",
+        type=float,
+        default=_PLAN_VALIDATION_TOLERANCE,
+        help="Per-checkpoint residual tolerance (default: %(default)s).",
+    )
+    vplan.set_defaults(func=_cmd_validate_plan)
 
     return parser
 
@@ -249,6 +269,33 @@ def _cmd_validate_library(args: argparse.Namespace) -> int:
     except (FileNotFoundError, LibraryLoadError, SpecValidationError) as exc:
         return _fail(str(exc))
     print(f"{args.library}: ok")
+    return 0
+
+
+def _cmd_validate_plan(args: argparse.Namespace) -> int:
+    try:
+        task_spec, library_spec, _ = _load_task_and_library(args.task)
+        validate_library(library_spec)
+        validate_task(task_spec, library_spec)
+        library = instantiate_library(library_spec)
+        task = instantiate_task(task_spec, library)
+        plan = plan_from_yaml_file(
+            args.plan,
+            bodies=library.bodies,
+            constraints=library.constraints,
+            transitions=library.transitions,
+        )
+        validate_plan(plan, task.system, goal=task.goal, tolerance=args.tolerance)
+    except (
+        FileNotFoundError,
+        LibraryLoadError,
+        SpecValidationError,
+        SpecInstantiationError,
+        PlanSerializationError,
+        PlanValidationError,
+    ) as exc:
+        return _fail(str(exc))
+    print(f"{args.plan}: ok")
     return 0
 
 
