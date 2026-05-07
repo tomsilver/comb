@@ -23,7 +23,7 @@ import numpy as np
 from spatialmath import SE2, SE3, Twist2, Twist3, UnitQuaternion
 
 from comb.bodies import Body, BodyPoses, PoseT
-from comb.parameter_spaces import Circle, ParameterSpace, Real
+from comb.parameter_spaces import BoundedReal, Circle, ParameterSpace, Real
 
 
 @dataclass(frozen=True)
@@ -294,6 +294,29 @@ class RevoluteJoint2D(Joint2D):
     def relative_transform(self, parameters: ConstraintParameters) -> SE2:
         fp = self.fixed_parameters
         return SE2(fp["origin_x"], fp["origin_y"], parameters["angle"])
+
+
+@dataclass(frozen=True, eq=False)
+class HingeJoint2D(RevoluteJoint2D):
+    """A 2D revolute joint with a bounded swing range — a door-style hinge.
+
+    Same kinematics as ``RevoluteJoint2D`` (rotation about a fixed origin in
+    body1's frame), but the angle parameter lives in a ``BoundedReal``
+    whose limits come from ``fixed_parameters['min_angle']`` and
+    ``['max_angle']``. Use this for things that shouldn't swing the full
+    360° (doors, lids, latches).
+    """
+
+    @classmethod
+    def fixed_parameter_names(cls) -> tuple[str, ...]:
+        return ("origin_x", "origin_y", "min_angle", "max_angle")
+
+    @property
+    def parameter_spaces(self) -> tuple[ParameterSpace, ...]:
+        if self.parameter_space_overrides is not None:
+            return self.parameter_space_overrides
+        fp = self.fixed_parameters
+        return (BoundedReal(float(fp["min_angle"]), float(fp["max_angle"])),)
 
 
 @dataclass(frozen=True, eq=False)

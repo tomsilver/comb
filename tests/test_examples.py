@@ -5,6 +5,7 @@ import pytest
 from spatialmath import SE2, SE3
 
 from comb.constraints import ConstraintParameters
+from comb.examples.door_2d import Door2D
 from comb.examples.fixed_pair_3d import FixedPair3D
 from comb.examples.mobile_base_2d import MobileBase2D
 from comb.examples.single_revolute_2d import SingleRevolute2D
@@ -121,6 +122,29 @@ def test_mobile_base_2d_solves_delta_drives_base():
     assert new_state.configuration[ex.joint]["tx"] == pytest.approx(1.5)
     assert new_state.configuration[ex.joint]["ty"] == pytest.approx(-0.5)
     assert new_state.configuration[ex.joint]["theta"] == pytest.approx(np.pi / 3)
+
+
+def test_door_2d_starts_valid():
+    """The door example builds in a valid state with the door closed (angle 0)."""
+    ex = Door2D()
+    assert _residual_norm(ex.mode) < 1e-12
+    assert ex.mode.anchored_bodies == [ex.wall]
+    assert ex.mode.configuration[ex.hinge]["angle"] == 0.0
+
+
+def test_door_2d_swings_under_delta():
+    """Driving the hinge angle rotates the door about the hinge."""
+    ex = Door2D(door_width=0.8)
+    new_state = solve(ex.mode, delta={ex.hinge: np.array([np.pi / 2])})
+    assert new_state.body_poses[ex.door].theta() == pytest.approx(np.pi / 2, abs=1e-7)
+    assert new_state.configuration[ex.hinge]["angle"] == pytest.approx(np.pi / 2)
+
+
+def test_door_2d_clamps_at_max_angle():
+    """A delta past max_angle clamps via the BoundedReal parameter space."""
+    ex = Door2D(max_angle=np.pi / 2)
+    new_state = solve(ex.mode, delta={ex.hinge: np.array([10.0])})
+    assert new_state.configuration[ex.hinge]["angle"] == pytest.approx(np.pi / 2)
 
 
 def test_arm_with_object_2d_starts_valid():
