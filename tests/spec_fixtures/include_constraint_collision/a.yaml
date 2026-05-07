@@ -1,0 +1,8 @@
+name: a
+includes:
+  - b.yaml
+constraints:
+  joint:
+    type: PlanarJoint2D
+    body1: x
+    body2: y

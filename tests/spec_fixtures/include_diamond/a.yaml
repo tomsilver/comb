@@ -1,0 +1,9 @@
+name: a
+includes:
+  - b.yaml
+  - c.yaml
+bodies:
+  body_a:
+    visual_geometry: {shape: rectangle, width: 0.1, height: 0.1}
+    collision_geometry: {shape: rectangle, width: 0.1, height: 0.1}
+    pose: {x: 0, y: 0, theta: 0}

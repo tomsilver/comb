@@ -1,0 +1,3 @@
+name: outer
+includes:
+  - sub/inner.yaml
