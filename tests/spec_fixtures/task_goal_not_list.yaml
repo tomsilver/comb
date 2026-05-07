@@ -1,0 +1,7 @@
+name: bad
+library: x.lib.yaml
+initial_mode: {}
+goal:
+  type: PointEquality2D
+  body1: a
+  body2: b

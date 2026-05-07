@@ -1,0 +1,14 @@
+name: pickup_at_target
+library: pickup_arm.lib.yaml
+initial_mode:
+  active_constraints: [joint_ab, joint_bc, world_to_block]
+  body_poses:
+    block: {x: 0.5, y: 1.0, theta: 0.0}
+  configuration:
+    joint_ab: {angle: 0.0}
+    joint_bc: {angle: 0.0}
+goal:
+  - type: PointEquality2D
+    body1: world
+    body2: block
+    fixed_parameters: {target_x: -0.6, target_y: 1.2, offset_x: 0.0, offset_y: 0.0}

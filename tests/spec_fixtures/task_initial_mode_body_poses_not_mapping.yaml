@@ -1,0 +1,5 @@
+name: bad
+library: x.lib.yaml
+initial_mode:
+  body_poses:
+    - block

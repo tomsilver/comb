@@ -19,17 +19,26 @@ from comb.spec.library import (
     PoseSpec,
     TransitionSpec,
 )
-from comb.spec.load import LibraryLoadError, load_library, load_library_file
+from comb.spec.load import (
+    LibraryLoadError,
+    load_library,
+    load_library_file,
+    load_task_file,
+)
+from comb.spec.task import InitialModeSpec, TaskSpec
 
 __all__ = [
     "BodySpec",
     "ConstraintSpec",
     "GeneratorCallSpec",
     "GeometrySpec",
+    "InitialModeSpec",
     "LibrarySpec",
     "LibraryLoadError",
     "PoseSpec",
+    "TaskSpec",
     "TransitionSpec",
     "load_library",
     "load_library_file",
+    "load_task_file",
 ]

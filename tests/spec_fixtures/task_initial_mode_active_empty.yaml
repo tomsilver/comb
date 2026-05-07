@@ -1,0 +1,4 @@
+name: empty_active
+library: x.lib.yaml
+initial_mode:
+  active_constraints: []
