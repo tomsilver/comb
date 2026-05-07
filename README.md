@@ -5,191 +5,106 @@
 A small kinematic library: bodies, constraints, modes, transitions, planners.
 Generic in pose type so the same machinery works for `SE(2)` and `SE(3)`.
 
-## Key terminology
+Scenes are described in YAML *libraries* (the bodies, constraints, and
+transitions that exist) and *tasks* (which constraints are active at the
+start, plus the goal the planner must reach). The `comb` CLI runs the
+load → validate → instantiate → plan → render pipeline end-to-end.
 
-### Static structure (the world's "what")
+## Install
 
-| Term | What it is |
-|---|---|
-| `Body[PoseT]` | a named rigid body with a pose and visual / collision geometry |
-| `Geometry[PoseT]` | a shape attached to a body |
-| `Constraint[PoseT]` | abstract relationship between two bodies; supplies `constraint_function(parameters, body_poses) -> residual` |
-| `ParameterSpace` | manifold for one scalar mutable parameter |
-
-### State (the world's "right now")
-
-| Term | What it is |
-|---|---|
-| `BodyPoses[PoseT]` | mapping `Body → pose` (mutable) |
-| `ConstraintConfiguration` | mapping `Constraint → ConstraintParameters`, for constraints with mutable parameters |
-| `ConstraintParameters` | named 1D vector of parameter values for one constraint |
-| `ModeState[PoseT]` | frozen snapshot of `(configuration, body_poses)` |
-
-### Transitions
-
-| Term | What it is |
-|---|---|
-| `ConstraintTransition[PoseT]` | trigger constraint + tolerance + `add` callable + `remove` tuple. `apply(mode, state)` returns a new `Mode`. |
-
-### Containers
-
-| Term | What it is |
-|---|---|
-| `Mode[PoseT]` | bodies + constraints + state + anchored bodies. What solvers and per-mode planners consume. |
-| `System[PoseT]` | a `Mode` plus `transitions: tuple[ConstraintTransition, ...]`. What multi-mode reasoning takes. |
-
-### Trajectories
-
-| Term | What it is |
-|---|---|
-| `Trajectory[T]` | `(fn: Callable[[float], T], duration)` — continuous-time function |
-| Constructors | `constant`, `linear_segment`, `piecewise_linear` |
-| Composition | `concatenate`, `Trajectory.sub`, `Trajectory.enumerate` |
-| Interpolators | `interpolate_array`, `interpolate_se2`, `interpolate_se3`, `interpolate_mode_state` |
-
-### Planning
-
-| Term | What it is |
-|---|---|
-| `Planner` | abstract: `plan(system, final_constraints, horizon) -> Trajectory[ModeState]`. Searches over sequences of modes (using `system.transitions`) to find a trajectory ending at a state satisfying `final_constraints`. |
-
-### Rendering
-
-| Term | What it is |
-|---|---|
-| `Renderer[PoseT]` | abstract: `render(mode, overlays=())`, `draw_body(...)` |
-| `Overlay[PoseT]` | abstract: extra content drawn on top of the system |
-
-## Examples
-
-### Body and geometry
-
-```python
-from spatialmath import SE2
-from comb.bodies import Body, Rectangle
-
-base = Body(
-    name="base",
-    pose=SE2(),
-    visual_geometry=Rectangle(0.2, 0.2),
-    collision_geometry=Rectangle(0.2, 0.2),
-)
+```bash
+uv pip install -e ".[develop]"
 ```
 
-### Constraint (a 2D revolute joint)
+## CLI walkthrough
 
-```python
-import numpy as np
-from comb.constraints import ConstraintParameters, RevoluteJoint2D
+The bundled examples live under `src/comb/examples/yaml/`. The pickup-and-place
+demo points an arm + block library at a placement goal:
 
-joint = RevoluteJoint2D(
-    body1=base,
-    body2=link_a,
-    fixed_parameters=ConstraintParameters(
-        values=np.array([0.0, 0.0]),  # origin_x, origin_y
-        names=RevoluteJoint2D.fixed_parameter_names(),
-    ),
-)
+```bash
+comb plan tests/spec_fixtures/example_pickup_place.task.yaml -o /tmp/plan.yaml
+# planned 51 segments and 1 transitions over 2s using library example_two_link_arm_with_object.lib.yaml
+# wrote plan to /tmp/plan.yaml
 ```
 
-### `ParameterSpace`
+Render the saved plan as a GIF:
 
-```python
-from comb.parameter_spaces import Circle
-
-space = Circle()
-space.retract(3.0, 0.5)        # → wraps to (-π, π]
-space.difference(-3.0, 3.0)    # → shortest signed angle
+```bash
+comb render /tmp/plan.yaml \
+    --task tests/spec_fixtures/example_pickup_place.task.yaml \
+    -o /tmp/plan.gif
+# wrote 41 frames at 20 fps to /tmp/plan.gif
 ```
 
-### `ConstraintConfiguration` and `BodyPoses`
+Validate inputs and outputs without producing artifacts:
 
-```python
-from comb.bodies import BodyPoses
-from comb.constraints import ConstraintConfiguration
+```bash
+comb validate library src/comb/examples/yaml/two_link_arm_with_object.lib.yaml
+# src/comb/examples/yaml/two_link_arm_with_object.lib.yaml: ok
 
-config = ConstraintConfiguration({
-    joint: ConstraintParameters(np.array([0.5]), ("angle",)),
-})
-poses = BodyPoses({base: SE2(), link_a: SE2(0, 0, 0.5)})
+comb validate task tests/spec_fixtures/example_pickup_place.task.yaml
+# tests/spec_fixtures/example_pickup_place.task.yaml: ok
+
+comb validate plan /tmp/plan.yaml \
+    --task tests/spec_fixtures/example_pickup_place.task.yaml
+# /tmp/plan.yaml: ok
 ```
 
-### `Mode` and `System`
+`comb plan` accepts `--horizon` and `--interval`; `comb render` accepts
+`--fps`, `--dt`, and `--figsize`; `comb validate plan` accepts
+`--tolerance`. `comb --help` and `comb <subcommand> --help` cover the
+rest.
 
-```python
-from comb.examples.two_link_arm_2d import TwoLinkArm2D
+## Authoring a library
 
-ex = TwoLinkArm2D()
-ex.mode    # Mode[SE2] — bodies, constraints, configuration, body_poses, anchored
-ex.system  # System[SE2] — wraps mode plus any transitions (none here)
+A library declares bodies, constraints, and transitions. Body geometry is
+declarative (`shape: rectangle, width, height, offset_x, offset_y`),
+constraint types match the Python class names, and transitions name a
+trigger constraint plus a list of state-dependent generators that produce
+new constraints when the trigger fires.
+
+```yaml
+# my_arm.lib.yaml
+name: my_arm
+bodies:
+  base:
+    visual_geometry: {shape: rectangle, width: 0.2, height: 0.2}
+    collision_geometry: {shape: rectangle, width: 0.2, height: 0.2}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+    anchored: true
+  link:
+    visual_geometry: {shape: rectangle, width: 0.5, height: 0.05, offset_x: 0.25}
+    collision_geometry: {shape: rectangle, width: 0.5, height: 0.05, offset_x: 0.25}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+constraints:
+  joint:
+    type: RevoluteJoint2D
+    body1: base
+    body2: link
+    fixed_parameters: {origin_x: 0.0, origin_y: 0.0}
+    initial_parameters: {angle: 0.0}
 ```
 
-### `Trajectory`
+A task references the library and supplies a goal:
 
-```python
-from comb.trajectories import linear_segment, concatenate, interpolate_se2
-
-a = linear_segment(SE2(), SE2(1, 0, 0), duration=1.0, interpolate=interpolate_se2)
-b = linear_segment(SE2(1, 0, 0), SE2(1, 1, 0), duration=1.0, interpolate=interpolate_se2)
-traj = concatenate([a, b])
-for t, pose in traj.enumerate(0.1):
-    ...
+```yaml
+# my_task.task.yaml
+name: rotate_link
+library: my_arm.lib.yaml
+initial_mode: {}
+goal:
+  - type: PointEquality2D
+    body1: base
+    body2: link
+    fixed_parameters: {target_x: 0.0, target_y: 0.5, offset_x: 0.5, offset_y: 0.0}
 ```
 
-### `SteppingPlanner`
-
-Naive BFS over modes (using `system.transitions`) with solver-bounded
-stepping inside each mode. Handed a system whose `transitions` include
-`pickup_transition`, the planner *automatically* discovers it has to fire the
-pickup to satisfy a goal that says "block at this placement target":
-
-```python
-from comb.planners.stepping import SteppingPlanner
-
-planner = SteppingPlanner(interval=0.1)
-trajectory = planner.plan(ex.system, final_constraints=[goal], horizon=2.0)
-```
-
-### `ConstraintTransition` and `RigidAttachment2D`
-
-```python
-from comb.transitions import RigidAttachment2D
-
-# When `pickup_trigger` is satisfied, attach `block` to `arm.link_b` and
-# release the world-to-block pin in one step.
-pickup = RigidAttachment2D(
-    arm.link_b,
-    block,
-    trigger=pickup_trigger,
-    tolerance=0.05,
-    detach_from=(world_to_block,),
-)
-
-if pickup.is_enabled(mode.snapshot()):
-    new_mode = pickup.apply(mode, mode.snapshot())
-```
-
-### Rendering with overlays
-
-```python
-from comb.rendering.matplotlib_2d import MatplotlibRenderer2D
-from comb.rendering.overlays import PointMarker2D
-
-renderer = MatplotlibRenderer2D()
-target_marker = PointMarker2D(x=0.6, y=1.4, marker="*", color="tab:orange")
-renderer.render(mode, overlays=[target_marker])
-```
-
-## Notebooks
-
-Worked examples in [`notebooks/`](notebooks/):
-
-- `plan_to_target_pose_2d.ipynb` — drive the two-link 2D arm so the tip reaches a world point.
-- `pick_and_place_2d.ipynb` — full pick-and-place loop using a `RigidAttachment2D` transition.
+Larger setups can split across files via `includes:` in the library
+header; `comb validate library` resolves the include graph and surfaces
+collisions and cycles.
 
 ## Development
 
 ```bash
-uv pip install -e ".[develop]"
 ./run_ci_checks.sh   # black + isort + docformatter + mypy + pylint + pytest
 ```
