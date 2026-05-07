@@ -41,11 +41,18 @@ class ConstraintTransition(Generic[PoseT]):
     The transition is *enabled* when ``trigger.constraint_function``'s residual
     norm at the given state is below ``tolerance``. ``apply(mode, state)``
     returns a fresh ``Mode`` whose constraints are
-    ``[c for c in mode.constraints if c not in remove] + add(state)``.
+    ``[c for c in mode.constraints if c not in resolved_remove] + add(state)``.
 
     ``add`` is a callable so the post-transition constraints can capture
     information from the moment of transition — most importantly the current
     relative transform between the bodies being rigidly attached.
+
+    ``remove`` is either a tuple of specific constraint instances or a
+    callable ``mode -> iterable of constraints``. The callable form is
+    needed when the constraint to remove was created by an *earlier*
+    transition (so there's no stable instance to capture at construction
+    time): walk the mode's current constraints and pick out the matching
+    one.
 
     The trigger is required to have no mutable parameters (only fixed ones),
     since the trigger isn't part of the mode and so has no entry in
@@ -57,7 +64,10 @@ class ConstraintTransition(Generic[PoseT]):
     add: Callable[[ModeState[PoseT]], Iterable[Constraint[PoseT]]] = field(
         default=lambda _state: ()
     )
-    remove: tuple[Constraint[PoseT], ...] = ()
+    remove: (
+        Callable[[Mode[PoseT]], Iterable[Constraint[PoseT]]]
+        | tuple[Constraint[PoseT], ...]
+    ) = ()
 
     def __post_init__(self) -> None:
         if self.trigger.parameter_names():
@@ -81,6 +91,11 @@ class ConstraintTransition(Generic[PoseT]):
         """Whether the trigger approximately holds at ``state``."""
         return self.trigger_residual(state) < self.tolerance
 
+    def constraints_to_remove(self, mode: Mode[PoseT]) -> tuple[Constraint[PoseT], ...]:
+        """Resolve ``remove`` against ``mode``'s current constraints."""
+        resolved = self.remove(mode) if callable(self.remove) else self.remove
+        return tuple(resolved)
+
     def apply(
         self,
         mode: Mode[PoseT],
@@ -89,16 +104,17 @@ class ConstraintTransition(Generic[PoseT]):
         """Return a new ``Mode`` reflecting this transition.
 
         Raises ``ValueError`` if the transition is not enabled at ``state``,
-        or if any constraint in ``remove`` isn't present in ``mode.constraints``.
+        or if any constraint to remove isn't present in ``mode.constraints``.
         """
         if not self.is_enabled(state):
             raise ValueError(
                 f"ConstraintTransition not enabled at state: trigger residual "
                 f"{self.trigger_residual(state):g} ≥ tolerance {self.tolerance:g}"
             )
-        remove_ids = {id(c) for c in self.remove}
+        to_remove = self.constraints_to_remove(mode)
+        remove_ids = {id(c) for c in to_remove}
         mode_ids = {id(c) for c in mode.constraints}
-        for c in self.remove:
+        for c in to_remove:
             if id(c) not in mode_ids:
                 raise ValueError(
                     f"ConstraintTransition.remove references {type(c).__name__} "

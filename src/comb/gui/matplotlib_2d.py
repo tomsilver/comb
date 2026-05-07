@@ -256,9 +256,11 @@ class MatplotlibGUI2D:
         state = self.mode.snapshot()
         if not transition.is_enabled(state):
             return False
-        # Transition's `remove` references must still be in the current mode.
+        # Resolved-remove constraints must still be in the current mode.
         mode_ids = {id(c) for c in self.mode.constraints}
-        return all(id(c) in mode_ids for c in transition.remove)
+        return all(
+            id(c) in mode_ids for c in transition.constraints_to_remove(self.mode)
+        )
 
     def show(self) -> None:
         """Block until the GUI window is closed."""
