@@ -242,3 +242,74 @@ def test_mobile_arm_door_2d_attach_swaps_in_hinge_and_grip():
     assert len(grips) == 1
     # Hinge angle starts at 0 (zero-init by ConstraintTransition.apply).
     assert new_mode.configuration[hinges[0]]["angle"] == 0.0
+
+
+def test_dual_arm_handover_2d_starts_valid():
+    """The dual-arm-handover example builds in a valid state with the object pinned."""
+    from comb.examples.dual_arm_handover_2d import DualArmHandover2D
+
+    ex = DualArmHandover2D()
+    assert _residual_norm(ex.mode) < 1e-12
+    assert ex.world_to_object in ex.mode.constraints
+    assert ex.arm_a_base in ex.mode.anchored_bodies
+    assert ex.arm_b_base in ex.mode.anchored_bodies
+    assert not ex.pickup_transition.is_enabled(ex.mode.snapshot())
+    assert not ex.handover_transition.is_enabled(ex.mode.snapshot())
+
+
+def test_dual_arm_handover_2d_pickup_swaps_object_to_arm_a():
+    """Bringing arm A's tip to the object enables pickup; applying it grafts the object
+    onto arm A."""
+    from comb.examples.dual_arm_handover_2d import DualArmHandover2D
+
+    ex = DualArmHandover2D()
+    near_state = find_satisfying_state(ex.mode, [ex.pickup_trigger])
+    ex.mode.set_state(near_state)
+    assert ex.pickup_transition.is_enabled(ex.mode.snapshot())
+
+    held_mode = ex.pickup_transition.apply(ex.mode, ex.mode.snapshot())
+    assert ex.world_to_object not in held_mode.constraints
+    a_grips = [
+        c
+        for c in held_mode.constraints
+        if c.body1 is ex.arm_a_link_b and c.body2 is ex.object_body
+    ]
+    assert len(a_grips) == 1
+
+
+def test_dual_arm_handover_2d_handover_swaps_object_from_a_to_b():
+    """After pickup, bringing arm B to the object fires handover: A grip out, B grip
+    in."""
+    from comb.examples.dual_arm_handover_2d import DualArmHandover2D
+
+    ex = DualArmHandover2D()
+    # Stage 1: pick up with arm A.
+    near_state = find_satisfying_state(ex.mode, [ex.pickup_trigger])
+    ex.mode.set_state(near_state)
+    held_mode = ex.pickup_transition.apply(ex.mode, ex.mode.snapshot())
+    a_grip = next(
+        c
+        for c in held_mode.constraints
+        if c.body1 is ex.arm_a_link_b and c.body2 is ex.object_body
+    )
+
+    # Stage 2: drive arm A so the object lands somewhere arm B can also reach,
+    # plus arm B's tip onto the object — find_satisfying_state handles all of it.
+    handover_ready = find_satisfying_state(held_mode, [ex.handover_trigger])
+    held_mode.set_state(handover_ready)
+    assert ex.handover_transition.is_enabled(held_mode.snapshot())
+
+    after = ex.handover_transition.apply(held_mode, held_mode.snapshot())
+    # The A grip is gone (dynamic remove found and pulled it out).
+    assert a_grip not in after.constraints
+    assert not any(
+        c.body1 is ex.arm_a_link_b and c.body2 is ex.object_body
+        for c in after.constraints
+    )
+    # A new B grip is in.
+    b_grips = [
+        c
+        for c in after.constraints
+        if c.body1 is ex.arm_b_link_b and c.body2 is ex.object_body
+    ]
+    assert len(b_grips) == 1
