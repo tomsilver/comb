@@ -1,60 +1,28 @@
-"""A 2D mobile base: a single rectangular body that drives freely in the plane.
+"""A 2D mobile base: a single rectangular body driving freely in the plane.
 
-Implemented as an anchored ``world`` body plus a ``base`` body connected by a
-``PlanarJoint2D``. The joint's three parameters ``(tx, ty, theta)`` are the
-base's pose in the world frame and are what a planner drives.
-
-Smallest workable example for motion-planning experiments — plan from the
-current configuration to a target base pose by handing the planner a
-``FixedJoint2D(world, base, target_pose)`` as the final constraint.
+Loads ``comb/examples/yaml/mobile_base.lib.yaml``. Implemented as an
+anchored ``world`` plus a ``base`` connected by a ``PlanarJoint2D`` whose
+three parameters ``(tx, ty, theta)`` are the base's pose in the world
+frame.
 """
 
-import numpy as np
+from __future__ import annotations
+
 from spatialmath import SE2
 
-from comb.bodies import Body, Rectangle
-from comb.constraints import (
-    ConstraintConfiguration,
-    ConstraintParameters,
-    PlanarJoint2D,
-)
+from comb.examples import load_example_default_task, load_example_library
 from comb.mode import Mode
 from comb.system import System
 
 
 class MobileBase2D:
-    """An assembled 2D mobile base with handles for its pieces."""
+    """Thin wrapper around the YAML library, surfacing named handles."""
 
-    def __init__(self, base_size: float = 0.4) -> None:
-        self.world = Body(
-            name="world",
-            pose=SE2(),
-            visual_geometry=Rectangle(0.0, 0.0),
-            collision_geometry=Rectangle(0.0, 0.0),
-        )
-        self.base = Body(
-            name="base",
-            pose=SE2(),
-            visual_geometry=Rectangle(base_size, base_size),
-            collision_geometry=Rectangle(base_size, base_size),
-        )
-        self.joint = PlanarJoint2D(
-            body1=self.world,
-            body2=self.base,
-            fixed_parameters=ConstraintParameters(values=np.array([]), names=()),
-        )
-        config = ConstraintConfiguration(
-            {
-                self.joint: ConstraintParameters(
-                    values=np.array([0.0, 0.0, 0.0]),
-                    names=PlanarJoint2D.parameter_names(),
-                )
-            }
-        )
-        self.mode: Mode[SE2] = Mode(
-            bodies=[self.world, self.base],
-            constraints=[self.joint],
-            configuration=config,
-            anchored_bodies=[self.world],
-        )
-        self.system: System[SE2] = System(mode=self.mode)
+    def __init__(self) -> None:
+        self.library = load_example_library("mobile_base")
+        self.world = self.library.bodies["world"]
+        self.base = self.library.bodies["base"]
+        self.joint = self.library.constraints["joint"]
+        task = load_example_default_task(self.library)
+        self.mode: Mode[SE2] = task.system.mode
+        self.system: System[SE2] = task.system

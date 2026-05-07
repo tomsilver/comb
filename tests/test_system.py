@@ -42,8 +42,8 @@ def test_system_preserves_transitions_order_and_contents():
 
 def test_system_default_transitions_is_empty_tuple():
     """Constructing without transitions yields an empty tuple."""
-    ex = TwoLinkArmWithObject2D(block_pose=SE2(0.4, 1.4, 0.0))
+    ex = TwoLinkArmWithObject2D()
     system: System[SE2] = System(mode=ex.mode)
     assert isinstance(system.transitions, tuple)
     assert len(system.transitions) == 0
-    np.testing.assert_array_equal(system.mode.body_poses[ex.block].t, [0.4, 1.4])
+    np.testing.assert_array_equal(system.mode.body_poses[ex.block].t, [0.5, 1.0])

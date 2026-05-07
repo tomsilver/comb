@@ -1,0 +1,18 @@
+name: door
+bodies:
+  wall:
+    visual_geometry: {shape: rectangle, width: 0.1, height: 0.1}
+    collision_geometry: {shape: rectangle, width: 0.1, height: 0.1}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+    anchored: true
+  door:
+    visual_geometry: {shape: rectangle, width: 0.8, height: 0.05, offset_x: 0.4}
+    collision_geometry: {shape: rectangle, width: 0.8, height: 0.05, offset_x: 0.4}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+constraints:
+  hinge:
+    type: HingeJoint2D
+    body1: wall
+    body2: door
+    fixed_parameters: {origin_x: 0.0, origin_y: 0.0, min_angle: 0.0, max_angle: 3.141592653589793}
+    initial_parameters: {angle: 0.0}

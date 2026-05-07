@@ -1,0 +1,18 @@
+name: single_revolute
+bodies:
+  base:
+    visual_geometry: {shape: rectangle, width: 0.1, height: 0.1}
+    collision_geometry: {shape: rectangle, width: 0.1, height: 0.1}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+    anchored: true
+  link:
+    visual_geometry: {shape: rectangle, width: 0.5, height: 0.05, offset_x: 0.25}
+    collision_geometry: {shape: rectangle, width: 0.5, height: 0.05, offset_x: 0.25}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+constraints:
+  joint:
+    type: RevoluteJoint2D
+    body1: base
+    body2: link
+    fixed_parameters: {origin_x: 0.0, origin_y: 0.0}
+    initial_parameters: {angle: 0.0}

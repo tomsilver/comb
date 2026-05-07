@@ -72,7 +72,7 @@ def test_two_link_arm_3d_solves_delta_propagates():
 
 def test_single_revolute_2d_starts_valid():
     """The single 2D revolute example builds in a valid state."""
-    ex = SingleRevolute2D(initial_angle=0.3)
+    ex = SingleRevolute2D()
     assert _residual_norm(ex.mode) < 1e-12
 
 
@@ -93,7 +93,7 @@ def test_two_link_arm_2d_starts_valid():
 
 def test_two_link_arm_2d_solves_delta_propagates():
     """A delta on joint_ab propagates through the unchanged joint_bc."""
-    ex = TwoLinkArm2D(link_length=1.0)
+    ex = TwoLinkArm2D()
     new_poses = solve(ex.mode, delta={ex.joint_ab: np.array([np.pi / 2])}).body_poses
     # Each link's frame sits at its joint pivot, so after rotating joint_ab
     # by 90 deg about z, link_a's frame is still at the base origin but
@@ -136,17 +136,54 @@ def test_door_2d_starts_valid():
 
 def test_door_2d_swings_under_delta():
     """Driving the hinge angle rotates the door about the hinge."""
-    ex = Door2D(door_width=0.8)
+    ex = Door2D()
     new_state = solve(ex.mode, delta={ex.hinge: np.array([np.pi / 2])})
     assert new_state.body_poses[ex.door].theta() == pytest.approx(np.pi / 2, abs=1e-7)
     assert new_state.configuration[ex.hinge]["angle"] == pytest.approx(np.pi / 2)
 
 
 def test_door_2d_clamps_at_max_angle():
-    """A delta past max_angle clamps via the BoundedReal parameter space."""
-    ex = Door2D(max_angle=np.pi / 2)
-    new_state = solve(ex.mode, delta={ex.hinge: np.array([10.0])})
-    assert new_state.configuration[ex.hinge]["angle"] == pytest.approx(np.pi / 2)
+    """A delta past max_angle clamps via the BoundedReal parameter space.
+
+    Builds a door with ``max_angle=π/2`` directly because the bundled YAML library
+    hardcodes ``max_angle=π``.
+    """
+    from comb.bodies import Body, Rectangle  # pylint: disable=import-outside-toplevel
+    from comb.constraints import (  # pylint: disable=import-outside-toplevel
+        ConstraintConfiguration,
+    )
+    from comb.mode import Mode  # pylint: disable=import-outside-toplevel
+
+    wall = Body(
+        name="wall",
+        pose=SE2(),
+        visual_geometry=Rectangle(0.1, 0.1),
+        collision_geometry=Rectangle(0.1, 0.1),
+    )
+    door = Body(
+        name="door",
+        pose=SE2(),
+        visual_geometry=Rectangle(0.8, 0.05, offset_x=0.4),
+        collision_geometry=Rectangle(0.8, 0.05, offset_x=0.4),
+    )
+    hinge = HingeJoint2D(
+        body1=wall,
+        body2=door,
+        fixed_parameters=ConstraintParameters(
+            values=np.array([0.0, 0.0, 0.0, np.pi / 2]),
+            names=HingeJoint2D.fixed_parameter_names(),
+        ),
+    )
+    mode = Mode(
+        bodies=[wall, door],
+        constraints=[hinge],
+        configuration=ConstraintConfiguration(
+            {hinge: ConstraintParameters(values=np.array([0.0]), names=("angle",))}
+        ),
+        anchored_bodies=[wall],
+    )
+    new_state = solve(mode, delta={hinge: np.array([10.0])})
+    assert new_state.configuration[hinge]["angle"] == pytest.approx(np.pi / 2)
 
 
 def test_arm_with_object_2d_starts_valid():

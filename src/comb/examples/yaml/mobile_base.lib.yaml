@@ -1,0 +1,17 @@
+name: mobile_base
+bodies:
+  world:
+    visual_geometry: {shape: rectangle, width: 0.0, height: 0.0}
+    collision_geometry: {shape: rectangle, width: 0.0, height: 0.0}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+    anchored: true
+  base:
+    visual_geometry: {shape: rectangle, width: 0.4, height: 0.4}
+    collision_geometry: {shape: rectangle, width: 0.4, height: 0.4}
+    pose: {x: 0.0, y: 0.0, theta: 0.0}
+constraints:
+  joint:
+    type: PlanarJoint2D
+    body1: world
+    body2: base
+    initial_parameters: {tx: 0.0, ty: 0.0, theta: 0.0}
