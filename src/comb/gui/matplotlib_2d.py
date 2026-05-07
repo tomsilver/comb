@@ -6,6 +6,10 @@ library (meshcat, pyvista, ...) and live in a sibling module
 (``comb/gui/<backend>_3d.py``); the two will not share much beyond the
 high-level "widget drives the solver, then re-render" pattern.
 
+The window is laid out in two columns: the scene fills the left half, and
+all parameter widgets and transition buttons stack vertically in the right
+column.
+
 The GUI builds one widget per mutable parameter across all constraints in the
 current mode, plus one button per ``ConstraintTransition`` in the system.
 Each button highlights green when its trigger holds at the current state and
@@ -43,18 +47,35 @@ from comb.transitions import ConstraintTransition
 
 ParameterWidget = Union[Slider, CircularDial]
 
+# Wider-than-tall figure so the scene and the controls column can sit side by side.
+_FIGSIZE = (12.0, 6.0)
+
+# Scene is the left column; controls fill the right.
+_SCENE_LEFT = 0.05
+_SCENE_RIGHT = 0.50
+_SCENE_BOTTOM = 0.08
+_SCENE_TOP = 0.95
+_CONTROLS_LEFT = 0.58
+_CONTROLS_RIGHT = 0.95
+_CONTROLS_TOP = 0.95
+_CONTROLS_WIDTH = _CONTROLS_RIGHT - _CONTROLS_LEFT
+
 _SLIDER_HEIGHT = 0.025
+_SLIDER_X = _CONTROLS_LEFT + 0.07  # leave room for the label on the slider's left
+_SLIDER_WIDTH = _CONTROLS_RIGHT - _SLIDER_X
+
 _DIAL_HEIGHT = 0.15
+_DIAL_WIDTH = 0.20  # axes box wider than the dial so the label has room
+_DIAL_X = _CONTROLS_LEFT + (_CONTROLS_WIDTH - _DIAL_WIDTH) / 2
+
 _BUTTON_HEIGHT = 0.04
+_BUTTON_X = _CONTROLS_LEFT
+_BUTTON_WIDTH = _CONTROLS_WIDTH
+
 # Inter-widget spacing must be large enough to host the dial's value text,
 # which renders just below the dial axes.
 _WIDGET_SPACING = 0.045
 _BUTTON_SPACING = 0.015
-_BOTTOM_PAD = 0.04
-# Gap between the controls strip and the scene axes — needs to be large enough
-# that a dial's title doesn't run into the scene's x-axis tick labels.
-_SCENE_GAP_ABOVE_CONTROLS = 0.10
-_SCENE_TOP = 0.95
 
 _BUTTON_ENABLED_COLOR = "tab:green"
 _BUTTON_DISABLED_COLOR = "lightgray"
@@ -81,8 +102,15 @@ class MatplotlibGUI2D:
         self.mode: Mode[SE2] = system.mode
         self.slider_range = slider_range
 
-        self.figure = plt.figure()
-        self.scene_ax = self.figure.add_axes((0.1, 0.0, 0.85, 0.0))  # placeholder
+        self.figure = plt.figure(figsize=_FIGSIZE)
+        self.scene_ax = self.figure.add_axes(
+            (
+                _SCENE_LEFT,
+                _SCENE_BOTTOM,
+                _SCENE_RIGHT - _SCENE_LEFT,
+                _SCENE_TOP - _SCENE_BOTTOM,
+            )
+        )
         self.renderer = MatplotlibRenderer2D(ax=self.scene_ax)
 
         self.widgets: list[ParameterWidget] = []
@@ -101,25 +129,10 @@ class MatplotlibGUI2D:
             _DIAL_HEIGHT if isinstance(spec[4], Circle) else _SLIDER_HEIGHT
             for spec in widget_specs
         ]
-        widgets_height = sum(widget_heights) + max(0, len(widget_heights) - 1) * (
-            _WIDGET_SPACING
-        )
 
-        n_buttons = len(self.system.transitions)
-        buttons_height = n_buttons * _BUTTON_HEIGHT + max(0, n_buttons - 1) * (
-            _BUTTON_SPACING
-        )
-        gap_widgets_to_buttons = (
-            _WIDGET_SPACING if widgets_height > 0 and buttons_height > 0 else 0.0
-        )
-
-        controls_height = widgets_height + gap_widgets_to_buttons + buttons_height
-        scene_bottom = _BOTTOM_PAD + controls_height + _SCENE_GAP_ABOVE_CONTROLS
-        self.scene_ax.set_position((0.1, scene_bottom, 0.85, _SCENE_TOP - scene_bottom))
-
-        # Stack from the top of the controls strip downward, so the parameter
-        # widgets sit between the scene and the transition buttons.
-        y_top = _BOTTOM_PAD + controls_height
+        # Stack from the top of the right column downward: parameter widgets
+        # first, then transition buttons below them.
+        y_top = _CONTROLS_TOP
         for (constraint, idx, label, init, space), height in zip(
             widget_specs, widget_heights
         ):
@@ -129,8 +142,8 @@ class MatplotlibGUI2D:
             self.widgets.append(widget)
             self._widget_axes.append(ax)
             y_top -= _WIDGET_SPACING
-        if widgets_height > 0 and buttons_height > 0:
-            y_top -= gap_widgets_to_buttons - _WIDGET_SPACING
+        if widget_specs and self.system.transitions:
+            y_top -= _WIDGET_SPACING - _BUTTON_SPACING
         for i, transition in enumerate(self.system.transitions):
             y_top -= _BUTTON_HEIGHT
             ax, button = self._make_transition_button(transition, i, y_top)
@@ -175,9 +188,9 @@ class MatplotlibGUI2D:
         height: float,
     ) -> tuple[Axes, ParameterWidget]:
         if isinstance(space, Circle):
-            ax = self.figure.add_axes((0.42, y_bottom, 0.16, height))
+            ax = self.figure.add_axes((_DIAL_X, y_bottom, _DIAL_WIDTH, height))
             return ax, CircularDial(ax, label, valinit=init)
-        ax = self.figure.add_axes((0.35, y_bottom, 0.5, height))
+        ax = self.figure.add_axes((_SLIDER_X, y_bottom, _SLIDER_WIDTH, height))
         lo, hi = space.preferred_range(self.slider_range)
         return ax, Slider(ax, label, lo, hi, valinit=init)
 
@@ -188,7 +201,7 @@ class MatplotlibGUI2D:
         y_bottom: float,
     ) -> tuple[Axes, Button]:
         label = f"#{index}: apply {type(transition).__name__}"
-        ax = self.figure.add_axes((0.1, y_bottom, 0.85, _BUTTON_HEIGHT))
+        ax = self.figure.add_axes((_BUTTON_X, y_bottom, _BUTTON_WIDTH, _BUTTON_HEIGHT))
         button = Button(ax, label, color=_BUTTON_DISABLED_COLOR)
         button.on_clicked(self._make_transition_callback(index))
         return ax, button
