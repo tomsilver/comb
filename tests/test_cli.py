@@ -180,3 +180,63 @@ def test_render_missing_plan_returns_1(
     captured = capsys.readouterr()
     assert rc == 1
     assert "error" in captured.err.lower()
+
+
+def test_validate_plan_round_trip_ok(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``comb plan`` then ``comb validate plan`` returns 0 on the saved YAML."""
+    plan_path = tmp_path / "plan.yaml"
+    rc = main(
+        [
+            "plan",
+            str(_FIXTURES / "example_pickup_place.task.yaml"),
+            "-o",
+            str(plan_path),
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()  # discard plan output
+
+    rc = main(
+        [
+            "validate",
+            "plan",
+            str(plan_path),
+            "--task",
+            str(_FIXTURES / "example_pickup_place.task.yaml"),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "ok" in captured.out
+
+
+def test_validate_plan_tight_tolerance_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A tolerance below the planner's actual residuals produces exit code 1."""
+    plan_path = tmp_path / "plan.yaml"
+    main(
+        [
+            "plan",
+            str(_FIXTURES / "example_pickup_place.task.yaml"),
+            "-o",
+            str(plan_path),
+        ]
+    )
+    capsys.readouterr()
+    rc = main(
+        [
+            "validate",
+            "plan",
+            str(plan_path),
+            "--task",
+            str(_FIXTURES / "example_pickup_place.task.yaml"),
+            "--tolerance",
+            "1e-12",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "error" in captured.err.lower()
