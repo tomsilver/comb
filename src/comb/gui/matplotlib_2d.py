@@ -1,4 +1,4 @@
-"""Matplotlib-backed interactive GUI for adjusting a ``Mode[SE2]``.
+"""Matplotlib-backed interactive GUI for adjusting a ``System[SE2]``.
 
 This GUI is 2D-only and pairs with the matplotlib 2D renderer in
 ``comb.rendering.matplotlib_2d``. A 3D GUI will likely use a different
@@ -7,13 +7,20 @@ library (meshcat, pyvista, ...) and live in a sibling module
 high-level "widget drives the solver, then re-render" pattern.
 
 The GUI builds one widget per mutable parameter across all constraints in the
-mode. Widget choice is dispatched on the parameter's
+current mode, plus one button per ``ConstraintTransition`` in the system.
+Each button highlights green when its trigger holds at the current state and
+turns gray (and refuses clicks) otherwise. Clicking an enabled button applies
+the transition, swaps the GUI's working mode for the result, and rebuilds the
+widget set to match the new constraint topology.
+
+Widget choice is dispatched on each parameter's
 :class:`~comb.parameter_spaces.ParameterSpace`: a circular angle gets a
 :class:`~comb.gui.widgets.CircularDial`, everything else gets a slider with
 the space's preferred range. On widget change the GUI computes the
 geodesic-aware delta from the current configuration, calls ``solve``, applies
-the resulting configuration and body poses to the mode, and asks the
-renderer to redraw. Requires ``mode.anchored_bodies`` to be non-empty.
+the resulting state, asks the renderer to redraw, and refreshes the
+transition buttons' enabled states. Requires ``mode.anchored_bodies`` to be
+non-empty.
 """
 
 from collections.abc import Callable
@@ -21,7 +28,8 @@ from typing import Union
 
 import numpy as np
 from matplotlib import pyplot as plt
-from matplotlib.widgets import Slider
+from matplotlib.axes import Axes
+from matplotlib.widgets import Button, Slider
 from spatialmath import SE2
 
 from comb.constraints import Constraint
@@ -30,68 +38,133 @@ from comb.mode import Mode
 from comb.parameter_spaces import Circle, ParameterSpace
 from comb.rendering.matplotlib_2d import MatplotlibRenderer2D
 from comb.solver import solve
+from comb.system import System
+from comb.transitions import ConstraintTransition
 
 ParameterWidget = Union[Slider, CircularDial]
 
 _SLIDER_HEIGHT = 0.025
 _DIAL_HEIGHT = 0.15
+_BUTTON_HEIGHT = 0.04
 # Inter-widget spacing must be large enough to host the dial's value text,
 # which renders just below the dial axes.
 _WIDGET_SPACING = 0.045
+_BUTTON_SPACING = 0.015
 _BOTTOM_PAD = 0.04
 # Gap between the controls strip and the scene axes — needs to be large enough
 # that a dial's title doesn't run into the scene's x-axis tick labels.
 _SCENE_GAP_ABOVE_CONTROLS = 0.10
 _SCENE_TOP = 0.95
 
+_BUTTON_ENABLED_COLOR = "tab:green"
+_BUTTON_DISABLED_COLOR = "lightgray"
+
 
 class MatplotlibGUI2D:
-    """Interactive matplotlib GUI for adjusting a ``Mode[SE2]``'s parameters."""
+    """Interactive matplotlib GUI for adjusting a ``System[SE2]``.
+
+    Tracks the current mode internally (initially ``system.mode``); applying a
+    transition rebinds the working mode to the result of
+    ``transition.apply(...)`` and rebuilds the widget set.
+    """
 
     def __init__(
         self,
-        mode: Mode[SE2],
+        system: System[SE2],
         slider_range: tuple[float, float] = (-np.pi, np.pi),
     ) -> None:
-        if not mode.anchored_bodies:
+        if not system.mode.anchored_bodies:
             raise ValueError(
                 "MatplotlibGUI2D requires mode.anchored_bodies to be non-empty"
             )
-        self.mode = mode
+        self.system = system
+        self.mode: Mode[SE2] = system.mode
         self.slider_range = slider_range
 
-        widget_specs: list[tuple[Constraint[SE2], int, str, float, ParameterSpace]] = []
-        for constraint in mode.constraints:
-            for i, name in enumerate(constraint.parameter_names()):
-                label = f"{constraint.body1.name}→{constraint.body2.name}.{name}"
-                init = float(mode.configuration[constraint].values[i])
-                space = constraint.parameter_spaces[i]
-                widget_specs.append((constraint, i, label, init, space))
-
-        heights = [
-            _DIAL_HEIGHT if isinstance(spec[4], Circle) else _SLIDER_HEIGHT
-            for spec in widget_specs
-        ]
-        controls_height = sum(heights) + max(0, len(heights) - 1) * _WIDGET_SPACING
-
         self.figure = plt.figure()
-        scene_bottom = _BOTTOM_PAD + controls_height + _SCENE_GAP_ABOVE_CONTROLS
-        self.scene_ax = self.figure.add_axes(
-            (0.1, scene_bottom, 0.85, _SCENE_TOP - scene_bottom)
-        )
+        self.scene_ax = self.figure.add_axes((0.1, 0.0, 0.85, 0.0))  # placeholder
         self.renderer = MatplotlibRenderer2D(ax=self.scene_ax)
 
         self.widgets: list[ParameterWidget] = []
-        # Stack widgets top-down so first parameter sits closest to the scene.
-        y_top = _BOTTOM_PAD + controls_height
-        for (constraint, idx, label, init, space), height in zip(widget_specs, heights):
-            y_top -= height
-            widget = self._make_widget(label, init, space, y_top, height)
-            widget.on_changed(self._make_callback(constraint, idx))
-            self.widgets.append(widget)
-            y_top -= _WIDGET_SPACING
+        self._widget_axes: list[Axes] = []
+        self.transition_buttons: list[Button] = []
+        self._button_axes: list[Axes] = []
 
+        self._build_controls()
         self.renderer.render(self.mode)
+
+    # ----- layout -----
+
+    def _build_controls(self) -> None:
+        widget_specs = self._widget_specs()
+        widget_heights = [
+            _DIAL_HEIGHT if isinstance(spec[4], Circle) else _SLIDER_HEIGHT
+            for spec in widget_specs
+        ]
+        widgets_height = sum(widget_heights) + max(0, len(widget_heights) - 1) * (
+            _WIDGET_SPACING
+        )
+
+        n_buttons = len(self.system.transitions)
+        buttons_height = n_buttons * _BUTTON_HEIGHT + max(0, n_buttons - 1) * (
+            _BUTTON_SPACING
+        )
+        gap_widgets_to_buttons = (
+            _WIDGET_SPACING if widgets_height > 0 and buttons_height > 0 else 0.0
+        )
+
+        controls_height = widgets_height + gap_widgets_to_buttons + buttons_height
+        scene_bottom = _BOTTOM_PAD + controls_height + _SCENE_GAP_ABOVE_CONTROLS
+        self.scene_ax.set_position((0.1, scene_bottom, 0.85, _SCENE_TOP - scene_bottom))
+
+        # Stack from the top of the controls strip downward, so the parameter
+        # widgets sit between the scene and the transition buttons.
+        y_top = _BOTTOM_PAD + controls_height
+        for (constraint, idx, label, init, space), height in zip(
+            widget_specs, widget_heights
+        ):
+            y_top -= height
+            ax, widget = self._make_widget(label, init, space, y_top, height)
+            widget.on_changed(self._make_widget_callback(constraint, idx))
+            self.widgets.append(widget)
+            self._widget_axes.append(ax)
+            y_top -= _WIDGET_SPACING
+        if widgets_height > 0 and buttons_height > 0:
+            y_top -= gap_widgets_to_buttons - _WIDGET_SPACING
+        for i, transition in enumerate(self.system.transitions):
+            y_top -= _BUTTON_HEIGHT
+            ax, button = self._make_transition_button(transition, i, y_top)
+            self.transition_buttons.append(button)
+            self._button_axes.append(ax)
+            y_top -= _BUTTON_SPACING
+        self._refresh_transition_buttons()
+
+    def _clear_controls(self) -> None:
+        for ax in self._widget_axes:
+            self.figure.delaxes(ax)
+        for ax in self._button_axes:
+            self.figure.delaxes(ax)
+        self.widgets.clear()
+        self._widget_axes.clear()
+        self.transition_buttons.clear()
+        self._button_axes.clear()
+
+    def _rebuild_controls(self) -> None:
+        self._clear_controls()
+        self._build_controls()
+        self.figure.canvas.draw_idle()
+
+    def _widget_specs(
+        self,
+    ) -> list[tuple[Constraint[SE2], int, str, float, ParameterSpace]]:
+        specs: list[tuple[Constraint[SE2], int, str, float, ParameterSpace]] = []
+        for constraint in self.mode.constraints:
+            for i, name in enumerate(constraint.parameter_names()):
+                label = f"{constraint.body1.name}→{constraint.body2.name}.{name}"
+                init = float(self.mode.configuration[constraint].values[i])
+                space = constraint.parameter_spaces[i]
+                specs.append((constraint, i, label, init, space))
+        return specs
 
     def _make_widget(
         self,
@@ -100,15 +173,29 @@ class MatplotlibGUI2D:
         space: ParameterSpace,
         y_bottom: float,
         height: float,
-    ) -> ParameterWidget:
+    ) -> tuple[Axes, ParameterWidget]:
         if isinstance(space, Circle):
             ax = self.figure.add_axes((0.42, y_bottom, 0.16, height))
-            return CircularDial(ax, label, valinit=init)
+            return ax, CircularDial(ax, label, valinit=init)
         ax = self.figure.add_axes((0.35, y_bottom, 0.5, height))
         lo, hi = space.preferred_range(self.slider_range)
-        return Slider(ax, label, lo, hi, valinit=init)
+        return ax, Slider(ax, label, lo, hi, valinit=init)
 
-    def _make_callback(
+    def _make_transition_button(
+        self,
+        transition: ConstraintTransition[SE2],
+        index: int,
+        y_bottom: float,
+    ) -> tuple[Axes, Button]:
+        label = f"#{index}: apply {type(transition).__name__}"
+        ax = self.figure.add_axes((0.1, y_bottom, 0.85, _BUTTON_HEIGHT))
+        button = Button(ax, label, color=_BUTTON_DISABLED_COLOR)
+        button.on_clicked(self._make_transition_callback(index))
+        return ax, button
+
+    # ----- callbacks -----
+
+    def _make_widget_callback(
         self, constraint: Constraint[SE2], param_idx: int
     ) -> Callable[[float], None]:
         def _on_change(new_value: float) -> None:
@@ -125,9 +212,40 @@ class MatplotlibGUI2D:
             for body in self.mode.bodies:
                 self.mode.body_poses[body] = new_state.body_poses[body]
             self.renderer.render(self.mode)
+            self._refresh_transition_buttons()
             self.figure.canvas.draw_idle()
 
         return _on_change
+
+    def _make_transition_callback(self, index: int) -> Callable[[object], None]:
+        def _on_click(_event: object) -> None:
+            transition = self.system.transitions[index]
+            if not self._is_transition_applicable(transition):
+                return
+            self.mode = transition.apply(self.mode, self.mode.snapshot())
+            self._rebuild_controls()
+            self.renderer.render(self.mode)
+            self.figure.canvas.draw_idle()
+
+        return _on_click
+
+    def _refresh_transition_buttons(self) -> None:
+        for transition, button in zip(self.system.transitions, self.transition_buttons):
+            color = (
+                _BUTTON_ENABLED_COLOR
+                if self._is_transition_applicable(transition)
+                else _BUTTON_DISABLED_COLOR
+            )
+            button.color = color
+            button.ax.set_facecolor(color)
+
+    def _is_transition_applicable(self, transition: ConstraintTransition[SE2]) -> bool:
+        state = self.mode.snapshot()
+        if not transition.is_enabled(state):
+            return False
+        # Transition's `remove` references must still be in the current mode.
+        mode_ids = {id(c) for c in self.mode.constraints}
+        return all(id(c) in mode_ids for c in transition.remove)
 
     def show(self) -> None:
         """Block until the GUI window is closed."""

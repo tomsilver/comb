@@ -107,7 +107,7 @@ def main() -> None:
             f"{type(sample_pose).__name__}; cannot launch the 2D GUI."
         )
 
-    gui = MatplotlibGUI2D(instance.mode)
+    gui = MatplotlibGUI2D(instance.system)
     gui.show()
 
 
