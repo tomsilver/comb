@@ -1,6 +1,6 @@
-"""YAML loaders for library files.
+"""YAML loaders for library and task files.
 
-Two entry points:
+Library entry points:
 
 * :func:`load_library_file` parses a single file into a :class:`LibrarySpec`,
   preserving its ``includes`` field as a tuple of path strings.
@@ -9,10 +9,16 @@ Two entry points:
   empty. Use this for end-to-end loading; the single-file version is the
   building block.
 
+Task entry point:
+
+* :func:`load_task_file` parses a task YAML into a :class:`TaskSpec`. The
+  task's ``library`` field is kept as a path string; resolving it against
+  the filesystem (and validating that the goal references match the
+  loaded library) is the validator's (B5) job.
+
 Schema validation only — generator and constraint type names pass through
-as strings. Semantic validation (does ``body1`` exist? is the generator
-registered?) lands in the validator (B5). Nothing here instantiates runtime
-``Body`` / ``Constraint`` / ``ConstraintTransition`` objects.
+as strings. Nothing here instantiates runtime ``Body`` / ``Constraint`` /
+``ConstraintTransition`` objects.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from comb.spec.library import (
     PoseSpec,
     TransitionSpec,
 )
+from comb.spec.task import InitialModeSpec, TaskSpec
 
 
 class LibraryLoadError(Exception):
@@ -79,6 +86,26 @@ def load_library(path: str | Path) -> LibrarySpec:
     loaded: dict[Path, LibrarySpec] = {}
     _load_recursive(root, loaded, stack=[])
     return _merge_libraries(root, loaded)
+
+
+def load_task_file(path: str | Path) -> TaskSpec:
+    """Read ``path`` and parse it into a :class:`TaskSpec`.
+
+    The task's ``library`` field is kept as a path string. Loading the
+    referenced library (and verifying that the task's references resolve)
+    happens in the validator (B5).
+    """
+    file_path = Path(path)
+    text = file_path.read_text(encoding="utf-8")
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise LibraryLoadError(f"{file_path}: failed to parse YAML: {exc}") from exc
+    if not isinstance(data, Mapping):
+        raise LibraryLoadError(
+            f"{file_path}: top-level must be a mapping, got " f"{type(data).__name__}"
+        )
+    return _parse_task(data, source=str(file_path))
 
 
 def _load_recursive(
@@ -161,6 +188,73 @@ def _merge_into(
 
 
 _T = TypeVar("_T")
+
+
+def _parse_task(data: Mapping[str, Any], *, source: str) -> TaskSpec:
+    initial_data = data.get("initial_mode", {})
+    if not isinstance(initial_data, Mapping):
+        raise LibraryLoadError(
+            f"{source}:initial_mode: expected mapping, got "
+            f"{type(initial_data).__name__}"
+        )
+    goal_data = data.get("goal", [])
+    if not isinstance(goal_data, list):
+        raise LibraryLoadError(
+            f"{source}:goal: expected list, got {type(goal_data).__name__}"
+        )
+    return TaskSpec(
+        name=_require_str(data, "name", source=source),
+        library=_require_str(data, "library", source=source),
+        initial_mode=_parse_initial_mode(initial_data, source=f"{source}:initial_mode"),
+        goal=tuple(
+            _parse_constraint_in_seq(item, source=f"{source}:goal[{i}]")
+            for i, item in enumerate(goal_data)
+        ),
+    )
+
+
+def _parse_initial_mode(data: Mapping[str, Any], *, source: str) -> InitialModeSpec:
+    active_raw = data.get("active_constraints")
+    active = (
+        None
+        if active_raw is None
+        else _parse_str_tuple(active_raw, source=f"{source}.active_constraints")
+    )
+    body_poses_raw = data.get("body_poses", {})
+    if not isinstance(body_poses_raw, Mapping):
+        raise LibraryLoadError(
+            f"{source}.body_poses: expected mapping, got "
+            f"{type(body_poses_raw).__name__}"
+        )
+    body_poses = {
+        _require_string_key(name, source=f"{source}.body_poses"): _parse_pose(
+            pose, source=f"{source}.body_poses.{name}"
+        )
+        for name, pose in body_poses_raw.items()
+    }
+    config_raw = data.get("configuration", {})
+    if not isinstance(config_raw, Mapping):
+        raise LibraryLoadError(
+            f"{source}.configuration: expected mapping, got "
+            f"{type(config_raw).__name__}"
+        )
+    configuration = {
+        _require_string_key(
+            name, source=f"{source}.configuration"
+        ): _parse_float_mapping(params, source=f"{source}.configuration.{name}")
+        for name, params in config_raw.items()
+    }
+    return InitialModeSpec(
+        active_constraints=active,
+        body_poses=body_poses,
+        configuration=configuration,
+    )
+
+
+def _parse_constraint_in_seq(data: Any, *, source: str) -> ConstraintSpec:
+    if not isinstance(data, Mapping):
+        raise LibraryLoadError(f"{source}: expected mapping, got {type(data).__name__}")
+    return _parse_constraint(data, source=source)
 
 
 def _parse_library(data: Mapping[str, Any], *, source: str) -> LibrarySpec:
