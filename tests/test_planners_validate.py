@@ -215,6 +215,33 @@ def test_event_at_first_sample_rejected() -> None:
         validate_plan(bad, ex.system)
 
 
+def test_max_segment_twist_accepts_plan_within_bound() -> None:
+    """A plan whose segments stay within ``max_segment_twist`` validates cleanly."""
+    arm = TwoLinkArm2D()
+    mode, world = _augment(arm)
+    goal_pose = _reachable_link_b_pose(arm, ab=math.pi / 4, bc=-math.pi / 4)
+    final = [_pin(world, arm.link_b, goal_pose)]
+    plan = SteppingPlanner(interval=0.1).plan(System(mode=mode), final, horizon=1.0)
+    # Planner used interval 0.1; validator accepts anything ≥ that.
+    validate_plan(
+        plan, System(mode=mode), goal=final, tolerance=1e-3, max_segment_twist=0.15
+    )
+
+
+def test_max_segment_twist_rejects_overshooting_plan() -> None:
+    """A plan whose segments exceed the granularity bound is rejected."""
+    arm = TwoLinkArm2D()
+    mode, world = _augment(arm)
+    goal_pose = _reachable_link_b_pose(arm, ab=math.pi / 3, bc=-math.pi / 4)
+    final = [_pin(world, arm.link_b, goal_pose)]
+    plan = SteppingPlanner(interval=0.5).plan(System(mode=mode), final, horizon=1.0)
+    # Planner ran loose; validator demands tight granularity.
+    with pytest.raises(PlanValidationError, match=r"max body twist .* > granularity"):
+        validate_plan(
+            plan, System(mode=mode), goal=final, tolerance=1e-3, max_segment_twist=0.05
+        )
+
+
 def test_constraint_residual_too_large_rejected() -> None:
     """Tightening the tolerance below what the planner achieves catches drift."""
     arm = TwoLinkArm2D()

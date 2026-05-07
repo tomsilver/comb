@@ -475,6 +475,21 @@ def test_active_constraints_subset_used_for_connectivity() -> None:
         validate_task(task, lib)
 
 
+def test_granularity_must_be_positive() -> None:
+    """A granularity with ``max_segment_twist <= 0`` is rejected."""
+    from comb.spec import GranularitySpec  # pylint: disable=import-outside-toplevel
+
+    lib = _two_body_lib()
+    task = TaskSpec(
+        name="t",
+        library="lib.yaml",
+        initial_mode=InitialModeSpec(),
+        granularity=GranularitySpec(max_segment_twist=0.0),
+    )
+    with pytest.raises(SpecValidationError, match="max_segment_twist must be positive"):
+        validate_task(task, lib)
+
+
 def test_two_disjoint_components_each_with_anchor_succeeds() -> None:
     """Two separate connected components are fine if each contains an anchor."""
     lib = LibrarySpec(

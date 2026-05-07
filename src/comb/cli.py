@@ -46,6 +46,7 @@ from comb.spec import (
 )
 
 _PLAN_VALIDATION_TOLERANCE = 1e-3
+_DEFAULT_INTERVAL = 0.1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -81,9 +82,10 @@ def _build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument(
         "--interval",
         type=float,
-        default=0.1,
-        help="SteppingPlanner per-checkpoint twist-norm bound "
-        "(default: %(default)s).",
+        default=None,
+        help="SteppingPlanner per-checkpoint twist-norm bound. Defaults to "
+        "the task's granularity.max_segment_twist if set, else "
+        f"{_DEFAULT_INTERVAL}.",
     )
     plan_parser.set_defaults(func=_cmd_plan)
 
@@ -161,13 +163,25 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         validate_task(task_spec, library_spec)
         library = instantiate_library(library_spec)
         task = instantiate_task(task_spec, library)
-        planner = SteppingPlanner(interval=args.interval)
+        granularity = task_spec.granularity
+        # An explicit --interval wins; otherwise the task's granularity is the
+        # planner's interval; otherwise fall back to the CLI default.
+        if args.interval is not None:
+            interval = args.interval
+        elif granularity is not None:
+            interval = granularity.max_segment_twist
+        else:
+            interval = _DEFAULT_INTERVAL
+        planner = SteppingPlanner(interval=interval)
         plan = planner.plan(task.system, task.goal, horizon=args.horizon)
         validate_plan(
             plan,
             task.system,
             goal=task.goal,
             tolerance=_PLAN_VALIDATION_TOLERANCE,
+            max_segment_twist=(
+                granularity.max_segment_twist if granularity is not None else None
+            ),
         )
     except (
         FileNotFoundError,
@@ -285,7 +299,16 @@ def _cmd_validate_plan(args: argparse.Namespace) -> int:
             constraints=library.constraints,
             transitions=library.transitions,
         )
-        validate_plan(plan, task.system, goal=task.goal, tolerance=args.tolerance)
+        granularity = task_spec.granularity
+        validate_plan(
+            plan,
+            task.system,
+            goal=task.goal,
+            tolerance=args.tolerance,
+            max_segment_twist=(
+                granularity.max_segment_twist if granularity is not None else None
+            ),
+        )
     except (
         FileNotFoundError,
         LibraryLoadError,

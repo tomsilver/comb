@@ -38,7 +38,7 @@ from comb.spec.library import (
     PoseSpec,
     TransitionSpec,
 )
-from comb.spec.task import InitialModeSpec, TaskSpec
+from comb.spec.task import GranularitySpec, InitialModeSpec, TaskSpec
 
 
 class LibraryLoadError(Exception):
@@ -202,6 +202,12 @@ def _parse_task(data: Mapping[str, Any], *, source: str) -> TaskSpec:
         raise LibraryLoadError(
             f"{source}:goal: expected list, got {type(goal_data).__name__}"
         )
+    granularity_raw = data.get("granularity")
+    granularity = (
+        None
+        if granularity_raw is None
+        else _parse_granularity(granularity_raw, source=f"{source}:granularity")
+    )
     return TaskSpec(
         name=_require_str(data, "name", source=source),
         library=_require_str(data, "library", source=source),
@@ -209,6 +215,18 @@ def _parse_task(data: Mapping[str, Any], *, source: str) -> TaskSpec:
         goal=tuple(
             _parse_constraint_in_seq(item, source=f"{source}:goal[{i}]")
             for i, item in enumerate(goal_data)
+        ),
+        granularity=granularity,
+    )
+
+
+def _parse_granularity(data: Any, *, source: str) -> GranularitySpec:
+    if not isinstance(data, Mapping):
+        raise LibraryLoadError(f"{source}: expected mapping, got {type(data).__name__}")
+    return GranularitySpec(
+        max_segment_twist=_parse_float(
+            _require(data, "max_segment_twist", source=source),
+            source=f"{source}.max_segment_twist",
         ),
     )
 

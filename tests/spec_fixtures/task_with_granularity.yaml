@@ -1,0 +1,5 @@
+name: with_granularity
+library: minimal.lib.yaml
+initial_mode: {}
+granularity:
+  max_segment_twist: 0.15
