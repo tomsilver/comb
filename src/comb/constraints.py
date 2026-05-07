@@ -454,3 +454,26 @@ def interpolate_constraint_configuration(
         if cid not in start_by_id:
             result[constraint] = end[constraint]
     return result
+
+
+CONSTRAINT_TYPES_2D: dict[str, type[Constraint[SE2]]] = {
+    "FixedJoint2D": FixedJoint2D,
+    "HingeJoint2D": HingeJoint2D,
+    "PlanarJoint2D": PlanarJoint2D,
+    "PointEquality2D": PointEquality2D,
+    "RevoluteJoint2D": RevoluteJoint2D,
+}
+"""Closed registry mapping 2D constraint type names to their classes.
+
+Used by the spec-language validator (:mod:`comb.spec.validate`) to check
+``ConstraintSpec.type`` references and look up each class's
+``fixed_parameter_names`` / ``parameter_names`` for shape validation.
+Adding a new 2D constraint class means adding it here too.
+"""
+
+
+CONSTRAINT_TYPES_3D: dict[str, type[Constraint[SE3]]] = {
+    "FixedJoint3D": FixedJoint3D,
+    "RevoluteJoint3D": RevoluteJoint3D,
+}
+"""Closed registry mapping 3D constraint type names to their classes."""

@@ -26,6 +26,7 @@ from comb.spec.load import (
     load_task_file,
 )
 from comb.spec.task import InitialModeSpec, TaskSpec
+from comb.spec.validate import SpecValidationError, validate_library, validate_task
 
 __all__ = [
     "BodySpec",
@@ -36,9 +37,12 @@ __all__ = [
     "LibrarySpec",
     "LibraryLoadError",
     "PoseSpec",
+    "SpecValidationError",
     "TaskSpec",
     "TransitionSpec",
     "load_library",
     "load_library_file",
     "load_task_file",
+    "validate_library",
+    "validate_task",
 ]
