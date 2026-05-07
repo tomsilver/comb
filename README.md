@@ -22,7 +22,7 @@ The bundled examples live under `src/comb/examples/yaml/`. The pickup-and-place
 demo points an arm + block library at a placement goal:
 
 ```bash
-comb plan tests/spec_fixtures/example_pickup_place.task.yaml -o /tmp/plan.yaml
+comb plan tests/spec/fixtures/example_pickup_place.task.yaml -o /tmp/plan.yaml
 # planned 51 segments and 1 transitions over 2s using library example_two_link_arm_with_object.lib.yaml
 # wrote plan to /tmp/plan.yaml
 ```
@@ -31,7 +31,7 @@ Render the saved plan as a GIF:
 
 ```bash
 comb render /tmp/plan.yaml \
-    --task tests/spec_fixtures/example_pickup_place.task.yaml \
+    --task tests/spec/fixtures/example_pickup_place.task.yaml \
     -o /tmp/plan.gif
 # wrote 41 frames at 20 fps to /tmp/plan.gif
 ```
@@ -42,11 +42,11 @@ Validate inputs and outputs without producing artifacts:
 comb validate library src/comb/examples/yaml/two_link_arm_with_object.lib.yaml
 # src/comb/examples/yaml/two_link_arm_with_object.lib.yaml: ok
 
-comb validate task tests/spec_fixtures/example_pickup_place.task.yaml
-# tests/spec_fixtures/example_pickup_place.task.yaml: ok
+comb validate task tests/spec/fixtures/example_pickup_place.task.yaml
+# tests/spec/fixtures/example_pickup_place.task.yaml: ok
 
 comb validate plan /tmp/plan.yaml \
-    --task tests/spec_fixtures/example_pickup_place.task.yaml
+    --task tests/spec/fixtures/example_pickup_place.task.yaml
 # /tmp/plan.yaml: ok
 ```
 

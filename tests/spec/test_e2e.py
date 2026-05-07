@@ -26,7 +26,7 @@ from comb.spec import (
     validate_task,
 )
 
-_FIXTURES = Path(__file__).parent / "spec_fixtures"
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_yaml_pickup_pipeline_runs_end_to_end() -> None:
