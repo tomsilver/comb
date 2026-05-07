@@ -119,3 +119,64 @@ def test_missing_task_file_returns_1(capsys: pytest.CaptureFixture[str]) -> None
     captured = capsys.readouterr()
     assert rc == 1
     assert "error" in captured.err.lower()
+
+
+def test_render_writes_gif_for_saved_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``comb plan`` then ``comb render`` produces a non-empty GIF on disk."""
+    plan_path = tmp_path / "plan.yaml"
+    rc = main(
+        [
+            "plan",
+            str(_FIXTURES / "example_pickup_place.task.yaml"),
+            "-o",
+            str(plan_path),
+            "--horizon",
+            "2.0",
+            "--interval",
+            "0.1",
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()  # discard plan output
+
+    gif_path = tmp_path / "plan.gif"
+    rc = main(
+        [
+            "render",
+            str(plan_path),
+            "--task",
+            str(_FIXTURES / "example_pickup_place.task.yaml"),
+            "-o",
+            str(gif_path),
+            "--fps",
+            "20",
+            "--dt",
+            "0.1",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "wrote" in captured.out
+    assert gif_path.exists()
+    assert gif_path.stat().st_size > 1024
+
+
+def test_render_missing_plan_returns_1(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A nonexistent plan file produces a clean error rather than a stack trace."""
+    rc = main(
+        [
+            "render",
+            str(tmp_path / "nope.yaml"),
+            "--task",
+            str(_FIXTURES / "example_pickup_place.task.yaml"),
+            "-o",
+            str(tmp_path / "out.gif"),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "error" in captured.err.lower()
