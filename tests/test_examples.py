@@ -4,9 +4,10 @@ import numpy as np
 import pytest
 from spatialmath import SE2, SE3
 
-from comb.constraints import ConstraintParameters
+from comb.constraints import ConstraintParameters, HingeJoint2D, PointEquality2D
 from comb.examples.door_2d import Door2D
 from comb.examples.fixed_pair_3d import FixedPair3D
+from comb.examples.mobile_arm_door_2d import MobileArmDoor2D
 from comb.examples.mobile_base_2d import MobileBase2D
 from comb.examples.single_revolute_2d import SingleRevolute2D
 from comb.examples.single_revolute_3d import SingleRevolute3D
@@ -199,3 +200,45 @@ def test_fixed_pair_3d_solves_after_perturbation():
     new_poses = solve(ex.mode).body_poses
     expected_child = ex.base.pose * SE3.Trans([1.0, 2.0, 3.0])
     np.testing.assert_allclose(new_poses[ex.child].A, expected_child.A, atol=1e-7)
+
+
+def test_mobile_arm_door_2d_starts_valid():
+    """The mobile-arm-door example builds in a valid state with the door pinned."""
+    ex = MobileArmDoor2D()
+    assert _residual_norm(ex.mode) < 1e-12
+    assert ex.world_to_door in ex.mode.constraints
+    np.testing.assert_array_equal(ex.mode.body_poses[ex.door].t, [2.0, 0.0])
+
+
+def test_mobile_arm_door_2d_attach_trigger_initially_far():
+    """At construction the arm tip is far from the door handle — trigger doesn't
+    fire."""
+    ex = MobileArmDoor2D()
+    assert not ex.attach_transition.is_enabled(ex.mode.snapshot())
+
+
+def test_mobile_arm_door_2d_attach_swaps_in_hinge_and_grip():
+    """Once the tip reaches the handle, applying the transition adds a hinge + grip."""
+    ex = MobileArmDoor2D()
+    near_state = find_satisfying_state(ex.mode, [ex.attach_trigger])
+    ex.mode.set_state(near_state)
+    assert ex.attach_transition.is_enabled(ex.mode.snapshot())
+
+    new_mode = ex.attach_transition.apply(ex.mode, ex.mode.snapshot())
+    assert ex.world_to_door not in new_mode.constraints
+    # Hinge added between world and door.
+    hinges = [c for c in new_mode.constraints if isinstance(c, HingeJoint2D)]
+    assert len(hinges) == 1
+    assert hinges[0].body1 is ex.world
+    assert hinges[0].body2 is ex.door
+    # The grip constraint (PointEquality2D) is in the post-attach mode.
+    grips = [
+        c
+        for c in new_mode.constraints
+        if isinstance(c, PointEquality2D)
+        and c.body1 is ex.door
+        and c.body2 is ex.link_b
+    ]
+    assert len(grips) == 1
+    # Hinge angle starts at 0 (zero-init by ConstraintTransition.apply).
+    assert new_mode.configuration[hinges[0]]["angle"] == 0.0
