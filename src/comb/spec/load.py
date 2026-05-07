@@ -1,12 +1,18 @@
-"""YAML loader for a single library file: file path → :class:`LibrarySpec`.
+"""YAML loaders for library files.
 
-Schema-validates the structure (required keys present, types correct, body
-references syntactically resolvable as strings) and produces a
-:class:`LibrarySpec`. Includes are *parsed* (kept as a tuple of path strings
-on the resulting spec) but not *resolved* — that happens in the include
-linker (B3). Nothing in this module instantiates runtime ``Body`` /
-``Constraint`` / ``ConstraintTransition`` objects; that's the validator's
-(B5) job once the full library is assembled.
+Two entry points:
+
+* :func:`load_library_file` parses a single file into a :class:`LibrarySpec`,
+  preserving its ``includes`` field as a tuple of path strings.
+* :func:`load_library` parses a file *and* recursively follows its
+  ``includes`` into one merged :class:`LibrarySpec` whose ``includes`` is
+  empty. Use this for end-to-end loading; the single-file version is the
+  building block.
+
+Schema validation only — generator and constraint type names pass through
+as strings. Semantic validation (does ``body1`` exist? is the generator
+registered?) lands in the validator (B5). Nothing here instantiates runtime
+``Body`` / ``Constraint`` / ``ConstraintTransition`` objects.
 """
 
 from __future__ import annotations
@@ -51,6 +57,107 @@ def load_library_file(path: str | Path) -> LibrarySpec:
             f"{file_path}: top-level must be a mapping, got " f"{type(data).__name__}"
         )
     return _parse_library(data, source=str(file_path))
+
+
+def load_library(path: str | Path) -> LibrarySpec:
+    """Load a library file and recursively resolve its ``includes``.
+
+    Returns a single merged :class:`LibrarySpec` whose ``includes`` is empty
+    and whose ``bodies`` / ``constraints`` / ``transitions`` are the union
+    across the include graph. The merged library's ``name`` is the root
+    file's name; included libraries' names are discarded.
+
+    Includes are resolved relative to the file declaring them. The graph
+    must be a DAG: cycles, including self-includes, raise. Diamond loads
+    (two paths to the same file) deduplicate by absolute path. Names must
+    be globally unique across the merged set — same body / constraint /
+    transition name in two libraries is an error.
+    """
+    root = Path(path).resolve()
+    if not root.exists():
+        raise LibraryLoadError(f"library file not found: {root}")
+    loaded: dict[Path, LibrarySpec] = {}
+    _load_recursive(root, loaded, stack=[])
+    return _merge_libraries(root, loaded)
+
+
+def _load_recursive(
+    path: Path,
+    loaded: dict[Path, LibrarySpec],
+    stack: list[Path],
+) -> None:
+    # Check the stack first: ``loaded`` is populated before children are
+    # processed, so a cycle ``A -> B -> A`` would otherwise be silenced by
+    # the dedup short-circuit on the second visit to A.
+    if path in stack:
+        cycle_start = stack.index(path)
+        chain = " -> ".join(str(p) for p in stack[cycle_start:]) + f" -> {path}"
+        raise LibraryLoadError(f"include cycle: {chain}")
+    if path in loaded:
+        return
+    stack.append(path)
+    spec = load_library_file(path)
+    loaded[path] = spec
+    for include in spec.includes:
+        included = (path.parent / include).resolve()
+        if not included.exists():
+            raise LibraryLoadError(
+                f"{path}: include not found: {include!r} (resolved to {included})"
+            )
+        _load_recursive(included, loaded, stack)
+    stack.pop()
+
+
+def _merge_libraries(root: Path, loaded: dict[Path, LibrarySpec]) -> LibrarySpec:
+    bodies: dict[str, BodySpec] = {}
+    constraints: dict[str, ConstraintSpec] = {}
+    transitions: dict[str, TransitionSpec] = {}
+    body_origin: dict[str, Path] = {}
+    constraint_origin: dict[str, Path] = {}
+    transition_origin: dict[str, Path] = {}
+
+    for src_path, spec in loaded.items():
+        _merge_into(spec.bodies, bodies, body_origin, src_path, kind="body")
+        _merge_into(
+            spec.constraints,
+            constraints,
+            constraint_origin,
+            src_path,
+            kind="constraint",
+        )
+        _merge_into(
+            spec.transitions,
+            transitions,
+            transition_origin,
+            src_path,
+            kind="transition",
+        )
+
+    return LibrarySpec(
+        name=loaded[root].name,
+        includes=(),
+        bodies=bodies,
+        constraints=constraints,
+        transitions=transitions,
+    )
+
+
+def _merge_into(
+    incoming: Mapping[str, _T],
+    target: dict[str, _T],
+    origin: dict[str, Path],
+    src_path: Path,
+    *,
+    kind: str,
+) -> None:
+    for name, value in incoming.items():
+        if name in target:
+            raise LibraryLoadError(
+                f"{kind} name {name!r} declared in both "
+                f"{origin[name]} and {src_path}"
+            )
+        target[name] = value
+        origin[name] = src_path
 
 
 _T = TypeVar("_T")

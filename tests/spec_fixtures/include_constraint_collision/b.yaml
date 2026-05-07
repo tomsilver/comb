@@ -1,0 +1,6 @@
+name: b
+constraints:
+  joint:
+    type: PlanarJoint2D
+    body1: p
+    body2: q

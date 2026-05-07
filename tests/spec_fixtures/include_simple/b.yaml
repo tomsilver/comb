@@ -1,0 +1,6 @@
+name: b
+bodies:
+  body_from_b:
+    visual_geometry: {shape: rectangle, width: 0.2, height: 0.2}
+    collision_geometry: {shape: rectangle, width: 0.2, height: 0.2}
+    pose: {x: 1, y: 0, theta: 0}
