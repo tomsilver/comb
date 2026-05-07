@@ -5,6 +5,8 @@ Subcommands:
 * ``comb plan TASK [-o OUT]`` — load + validate + instantiate the task,
   plan to its goal with :class:`SteppingPlanner`, validate the resulting
   plan, and (with ``-o``) serialize it to YAML.
+* ``comb render PLAN --task TASK -o OUT.gif`` — load a saved plan against
+  the task's library, sample its trajectory, and write an animated GIF.
 * ``comb validate library LIB`` — structural validation of a library.
 * ``comb validate task TASK`` — structural validation of a task against
   its referenced library.
@@ -35,6 +37,7 @@ from comb.spec import (
     instantiate_task,
     load_library,
     load_task_file,
+    plan_from_yaml_file,
     plan_to_yaml_file,
     validate_library,
     validate_task,
@@ -81,6 +84,39 @@ def _build_parser() -> argparse.ArgumentParser:
         "(default: %(default)s).",
     )
     plan_parser.set_defaults(func=_cmd_plan)
+
+    render_parser = sub.add_parser(
+        "render",
+        help="Render a saved plan as an animated GIF.",
+    )
+    render_parser.add_argument("plan", help="Path to a plan YAML file.")
+    render_parser.add_argument(
+        "--task",
+        required=True,
+        help="Task YAML the plan was generated from (resolves bodies, "
+        "constraints, transitions, and the renderer's view).",
+    )
+    render_parser.add_argument(
+        "-o", "--output", required=True, help="Path to write the rendered GIF."
+    )
+    render_parser.add_argument(
+        "--fps", type=int, default=20, help="Output frame rate (default: %(default)s)."
+    )
+    render_parser.add_argument(
+        "--dt",
+        type=float,
+        default=0.05,
+        help="Trajectory sample spacing in seconds (default: %(default)s).",
+    )
+    render_parser.add_argument(
+        "--figsize",
+        type=float,
+        nargs=2,
+        default=(6.0, 6.0),
+        metavar=("W", "H"),
+        help="Figure size in inches (default: %(default)s).",
+    )
+    render_parser.set_defaults(func=_cmd_render)
 
     validate_parser = sub.add_parser("validate", help="Structural validation.")
     validate_sub = validate_parser.add_subparsers(dest="kind", required=True)
@@ -142,6 +178,67 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     )
     if args.output:
         print(f"wrote plan to {args.output}")
+    return 0
+
+
+def _cmd_render(args: argparse.Namespace) -> int:
+    # Force a headless backend before importing pyplot so the CLI works in
+    # environments with no display (CI, ssh sessions, etc.).
+    import matplotlib  # pylint: disable=import-outside-toplevel
+
+    matplotlib.use("Agg")
+    # pylint: disable=import-outside-toplevel
+    from matplotlib import animation, pyplot
+
+    from comb.rendering.matplotlib_2d import MatplotlibRenderer2D
+
+    try:
+        task_spec, library_spec, _ = _load_task_and_library(args.task)
+        validate_library(library_spec)
+        validate_task(task_spec, library_spec)
+        library = instantiate_library(library_spec)
+        task = instantiate_task(task_spec, library)
+        plan = plan_from_yaml_file(
+            args.plan,
+            bodies=library.bodies,
+            constraints=library.constraints,
+            transitions=library.transitions,
+        )
+    except (
+        FileNotFoundError,
+        LibraryLoadError,
+        SpecValidationError,
+        SpecInstantiationError,
+        PlanSerializationError,
+    ) as exc:
+        return _fail(str(exc))
+
+    samples = list(plan.trajectory.enumerate(args.dt))
+    if not samples:
+        return _fail(
+            f"plan trajectory has zero duration; nothing to render " f"(dt={args.dt:g})"
+        )
+
+    figure, axis = pyplot.subplots(figsize=tuple(args.figsize))
+    renderer = MatplotlibRenderer2D(ax=axis)
+    mode = task.system.mode
+
+    def draw(frame_idx: int) -> list:  # matplotlib expects Iterable[Artist]
+        _, state = samples[frame_idx]
+        for body in mode.bodies:
+            mode.body_poses[body] = state.body_poses[body]
+        renderer.render(mode)
+        return []
+
+    anim = animation.FuncAnimation(
+        figure, draw, frames=len(samples), interval=int(1000 / args.fps)
+    )
+    try:
+        anim.save(args.output, writer=animation.PillowWriter(fps=args.fps))
+    finally:
+        pyplot.close(figure)
+
+    print(f"wrote {len(samples)} frames at {args.fps} fps to {args.output}")
     return 0
 
 
