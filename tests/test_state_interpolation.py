@@ -131,19 +131,30 @@ def test_interpolate_configuration_clamps_on_bounded_real():
     assert over[joint]["angle"] == pytest.approx(1.0)
 
 
-def test_interpolate_configuration_rejects_mismatched_constraint_sets():
-    """The two configurations must share the same constraints."""
+def test_interpolate_configuration_carries_constraints_unique_to_one_side():
+    """A mode-change boundary: one side has a constraint the other doesn't.
+
+    The interpolation should produce a configuration containing the union (the missing-
+    from-one constraint's value carries through unchanged), so trajectories spanning a
+    transition stay well-formed.
+    """
     a, b, c = _body_3d("a"), _body_3d("b"), _body_3d("c")
     j1 = _revolute_3d(a, b)
     j2 = _revolute_3d(b, c)
     start = ConstraintConfiguration(
-        {j1: ConstraintParameters(np.array([0.0]), ("angle",))}
+        {j1: ConstraintParameters(np.array([0.5]), ("angle",))}
     )
     end = ConstraintConfiguration(
-        {j2: ConstraintParameters(np.array([0.0]), ("angle",))}
+        {
+            j1: ConstraintParameters(np.array([1.5]), ("angle",)),
+            j2: ConstraintParameters(np.array([0.3]), ("angle",)),
+        }
     )
-    with pytest.raises(ValueError, match="matching constraint sets"):
-        interpolate_constraint_configuration(start, end, 0.5)
+    mid = interpolate_constraint_configuration(start, end, 0.5)
+    # j1 is in both sides — geodesic interpolation.
+    assert mid[j1]["angle"] == pytest.approx(1.0)
+    # j2 is only in end — value carries through.
+    assert mid[j2]["angle"] == pytest.approx(0.3)
 
 
 def test_interpolate_body_poses_se3():

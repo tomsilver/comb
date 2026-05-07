@@ -415,33 +415,42 @@ def interpolate_constraint_configuration(
 ) -> ConstraintConfiguration:
     """Interpolate two configurations along each parameter's manifold.
 
-    For each constraint, the per-parameter ``ParameterSpace.retract`` /
-    ``difference`` defines the geodesic step: circular angles take the short
-    way and bounded reals stay in range. Both configurations must have entries
-    for the same set of constraints (compared by identity, matching
-    ``ConstraintConfiguration`` lookup semantics).
+    For constraints present in *both* configurations, the per-parameter
+    ``ParameterSpace.retract`` / ``difference`` defines the geodesic step:
+    circular angles take the short way and bounded reals stay in range.
+
+    For constraints present in only one of the inputs (e.g. when the
+    trajectory spans a mode transition that adds or removes a parameterized
+    constraint), the value carries through from whichever configuration
+    contains it. Trajectory body poses interpolate continuously across mode
+    changes; the configuration entries that exist only on one side are kept
+    as-is so the result is a well-formed ``ConstraintConfiguration``.
     """
-    start_ids = {id(c) for c in start}
-    end_ids = {id(c) for c in end}
-    if start_ids != end_ids:
-        raise ValueError(
-            "interpolate_constraint_configuration requires matching constraint sets in "
-            "start and end"
-        )
     result = ConstraintConfiguration()
-    for constraint in start:
-        a_vals = start[constraint].values
-        b_vals = end[constraint].values
-        spaces = constraint.parameter_spaces
-        names = constraint.parameter_names()
-        new_values = np.array(
-            [
-                spaces[i].retract(
-                    float(a_vals[i]),
-                    s * spaces[i].difference(float(b_vals[i]), float(a_vals[i])),
-                )
-                for i in range(len(names))
-            ]
-        )
-        result[constraint] = ConstraintParameters(values=new_values, names=names)
+    start_by_id = {id(c): c for c in start}
+    end_by_id = {id(c): c for c in end}
+    for cid, constraint in start_by_id.items():
+        if cid in end_by_id:
+            a_vals = start[constraint].values
+            b_vals = end[constraint].values
+            spaces = constraint.parameter_spaces
+            names = constraint.parameter_names()
+            result[constraint] = ConstraintParameters(
+                values=np.array(
+                    [
+                        spaces[i].retract(
+                            float(a_vals[i]),
+                            s
+                            * spaces[i].difference(float(b_vals[i]), float(a_vals[i])),
+                        )
+                        for i in range(len(names))
+                    ]
+                ),
+                names=names,
+            )
+        else:
+            result[constraint] = start[constraint]
+    for cid, constraint in end_by_id.items():
+        if cid not in start_by_id:
+            result[constraint] = end[constraint]
     return result
