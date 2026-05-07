@@ -87,22 +87,25 @@ def test_specs_are_frozen():
 
 def test_library_spec_value_equality():
     """Two LibrarySpecs with the same content compare equal (dataclass __eq__)."""
-    common = {
-        "name": "arm",
-        "bodies": {
-            "base": BodySpec(
-                visual_geometry=GeometrySpec(
-                    shape="rectangle", parameters={"width": 0.2, "height": 0.2}
+
+    def _build() -> LibrarySpec:
+        return LibrarySpec(
+            name="arm",
+            bodies={
+                "base": BodySpec(
+                    visual_geometry=GeometrySpec(
+                        shape="rectangle", parameters={"width": 0.2, "height": 0.2}
+                    ),
+                    collision_geometry=GeometrySpec(
+                        shape="rectangle", parameters={"width": 0.2, "height": 0.2}
+                    ),
+                    pose=PoseSpec(values={"x": 0.0, "y": 0.0, "theta": 0.0}),
+                    anchored=True,
                 ),
-                collision_geometry=GeometrySpec(
-                    shape="rectangle", parameters={"width": 0.2, "height": 0.2}
-                ),
-                pose=PoseSpec(values={"x": 0.0, "y": 0.0, "theta": 0.0}),
-                anchored=True,
-            ),
-        },
-    }
-    assert LibrarySpec(**common) == LibrarySpec(**common)
+            },
+        )
+
+    assert _build() == _build()
 
 
 def test_generator_call_spec_carries_arbitrary_args():
